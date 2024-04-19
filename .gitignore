@@ -2,7 +2,15 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
+.DS_Store
+background/security.txt
+background/access.txt
+test.py
+test2.py
+Data/
+*.pyc
+*.txt
+background/__pycache__/
 # C extensions
 *.so
 
