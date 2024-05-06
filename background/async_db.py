@@ -8,7 +8,6 @@ class dbconnection:
     def __init__(self):
         setting = settings()
         self.set = setting.get_db()
-        print('db', self.set[4])
     async def create_pool(self, loop):
         self.pool = await aiomysql.create_pool(maxsize=20, host=self.set[2], port=self.set[3], user=self.set[0], password=self.set[1], db=self.set[4], loop=loop)
 
@@ -20,123 +19,383 @@ class dbconnection:
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
         return df
-    async def get_open_positions_db(self):
+
+    async def get_instrument_token(self, index_name):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                query = f"SELECT * FROM Trade_Book where `status` in (0, 1) and intent = 0"
+                query = f"SELECT instrument_token FROM instruments where tradingsymbol = '{index_name}' Limit 1;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df    
+    async def insert_into_monitor_symbols(self, instrument_token, symbol, expiry, strike, option_type, ltp, stock_symbol):
+        print('in insert_into_monitor_symbols')
+        print(f"{instrument_token=}, {symbol=}, {expiry=}, {strike=}, {option_type=}, {ltp=}, {stock_symbol=}")
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "CALL InsertIntoMonitorSymbols(%s, %s, %s, %s, %s, %s, %s)",
+                    (instrument_token, symbol, expiry, strike, option_type, ltp, stock_symbol)
+                )
+                await conn.commit()
+
+    async def get_five_min_ohlc(self, symbol, start_date):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT * FROM five_min_ohlc where symbol = '{symbol}' and `datetime` > '{start_date}' order by `datetime`;"
                 await cur.execute(query)
                 data = await cur.fetchall()
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
         return df
 
-    async def get_placedOrders(self):
+    async def get_thirty_min_ohlc(self, symbol, start_date):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                query = f"SELECT * FROM Trade_Book where `status` = 1"
+                query = f"SELECT * FROM thirty_min_ohlc where symbol = '{symbol}' and `datetime` > '{start_date}' order by `datetime`;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df        
+
+    async def truncate_pre_process_logs(self):      
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute("truncate table pre_process_logs;")
+                    await conn.commit()
+                    return 1
+        except Exception as e:
+            raise e
+    async def get_last_ohlc_date(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = "SELECT `datetime` FROM daily_ohlc order by id desc LIMIT 1;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df
+    async def get_last_fivemin_ohlc_date(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = "SELECT `datetime` FROM five_min_ohlc order by id desc LIMIT 1;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df
+    async def get_last_thirty_min_ohlc_date(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = "SELECT `datetime` FROM thirty_min_ohlc order by id desc LIMIT 1;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df
+
+    async def get_last_fifteen_min_ohlc_date(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = "SELECT `datetime` FROM fifteen_min_ohlc order by id desc LIMIT 1;"
                 await cur.execute(query)
                 data = await cur.fetchall()
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
         return df
     
-    async def get_SL_placedOrders(self):
+    async def get_last_ohlc_date_symbol(self, symbol):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                query = f"SELECT * FROM Trade_Book where `status` = 0 and intent = 1"
+                query = f"SELECT `datetime` FROM daily_ohlc where symbol = '{symbol}' order by id desc LImit 1;"
                 await cur.execute(query)
                 data = await cur.fetchall()
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
         return df
-    async def get_SL_Orders(self):
+    async def get_last_datetime_five_min(self, symbol):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                query = f"SELECT * FROM Trade_Book where `status` < 2 and intent = 1"
+                query = f"SELECT `datetime` FROM five_min_ohlc where symbol = '{symbol}' order by id desc Limit 1;"
                 await cur.execute(query)
                 data = await cur.fetchall()
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
-        return df
-    async def get_executed_Orders_forSL(self):
+        return df   
+     
+    async def get_last_datetime_fifteen_min(self, symbol):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                query = f"SELECT * FROM Trade_Book where `status` = 1 and intent = 0 and StopLossStatus = 0"
+                query = f"SELECT `datetime` FROM fifteen_min_ohlc where symbol = '{symbol}' order by id desc Limit 1;"
+                print(query)
                 await cur.execute(query)
                 data = await cur.fetchall()
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
-        return df
-    async def get_force_exit_orders(self, cur_date):
+        print(df)
+        return df   
+    
+    async def get_last_datetime_thirty_min(self, symbol):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                query = f"SELECT SQL_NO_CACHE B.* FROM Trade_Book B inner join strategies S on B.strategy_id = S.ID where S.status = 1 and B.intent = 1 and B.status = 0 and S.force_exit = 1"
+                query = f"SELECT `datetime` FROM thirty_min_ohlc where symbol = '{symbol}' order by id desc Limit 1;"
                 await cur.execute(query)
                 data = await cur.fetchall()
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
-        return df
-    async def get_monitor_symbols(self):
+        return df   
+    
+    async def get_last_datetime_one_hour_ohlc(self, symbol):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                query = f"SELECT m.id, m.instrument_token, i.tradingsymbol, m.symbol, m.expiry, m.strike, m.high, m.low, m.option_type, i.lot_size FROM monitor_symbols m left join instruments i on m.instrument_token = i.instrument_token where m.`active` = 1 and m.status = 0;"
+                query = f"SELECT `datetime` FROM one_hour_ohlc where symbol = '{symbol}' order by id desc Limit 1;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df  
+
+    async def get_pre_market_steps(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = "SELECT * FROM pre_market_steps where Date(last_execution) < curdate() and enabled = 1 order by priority;"
                 await cur.execute(query)
                 data = await cur.fetchall()
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
         return df
     
-    async def get_stoplossbyMainOrder(self, main_order_id):
+    async def get_last_five_dates(self):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                query = f"SELECT * FROM Trade_Book where intent = 1 and main_order_id = {main_order_id};"
+                query = f"SELECT distinct `date` FROM nifty_ohlc order by `date` desc Limit 5;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df  
+    
+    async def get_pre_market_steps_ignore_date(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = "SELECT * FROM pre_market_steps order by priority;"
                 await cur.execute(query)
                 data = await cur.fetchall()
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
         return df
         
-    async def get_trade_book(self, cur_date):
-        async with self.pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                query = f"SELECT * FROM Trade_Book where date(`timestamp`) = '{cur_date}' and status >= 0;"
-                await cur.execute(query)
-                data = await cur.fetchall()
-        columns = [desc[0] for desc in cur.description]
-        df = pd.DataFrame(data, columns=columns)
-        return df
-    async def get_strategies(self):
-        async with self.pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                query = f"SELECT * FROM strategies;"
-                #print(query)
-                await cur.execute(query)
-                data = await cur.fetchall()
-        columns = [desc[0] for desc in cur.description]
-        df = pd.DataFrame(data, columns=columns)
-        return df
-    async def insert_nifty_ohlc(self, symbol, date, open, high, low, close):
+    async def insert_daily_ohlc(self, symbol, date, open, high, low, close, volume):
         try:
             async with self.pool.acquire() as conn:
                 async with conn.cursor() as cur:
                     await cur.execute(
-                    "INSERT INTO nifty_ohlc(symbol, date, open, high, low, close) VALUES (%s, %s, %s, %s, %s, %s)",
-                    (symbol, date, open, high, low, close)
-                    )
-                    await conn.commit()
-        except Exception as e:
-            raise e    
-    async def insert_banknifty_ohlc(self, symbol, date, open, high, low, close):
-        try:
-            async with self.pool.acquire() as conn:
-                async with conn.cursor() as cur:
-                    await cur.execute(
-                    "INSERT INTO bank_nifty_ohlc(symbol, date, open, high, low, close) VALUES (%s, %s, %s, %s, %s, %s)",
-                    (symbol, date, open, high, low, close)
+                    "INSERT IGNORE INTO daily_ohlc(symbol, datetime, open, high, low, close, volume) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (symbol, date, open, high, low, close, volume)
                     )
                     await conn.commit()
         except Exception as e:
             raise e
+        
+    async def insert_five_min_ohlc(self, symbol, datetime, open, high, low, close, volume):
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                    "INSERT IGNORE INTO five_min_ohlc(symbol, datetime, open, high, low, close, volume) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (symbol, datetime, open, high, low, close, volume)
+                    )
+                    await conn.commit()
+        except Exception as e:
+            raise e
+    async def insert_thirty_min_ohlc(self, symbol, datetime, open, high, low, close, volume):
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                    "INSERT IGNORE INTO thirty_min_ohlc(symbol, datetime, open, high, low, close, volume) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (symbol, datetime, open, high, low, close, volume)
+                    )
+                    await conn.commit()
+        except Exception as e:
+            raise e
+    async def insert_fifteen_min_ohlc(self, symbol, datetime, open, high, low, close, volume):
+        print(f"{symbol}, {datetime}, {open=}, {high=}, {low=}, {close=}, {volume=}")
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                    "INSERT IGNORE INTO fifteen_min_ohlc(symbol, datetime, open, high, low, close, volume) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (symbol, datetime, open, high, low, close, volume)
+                    )
+                    await conn.commit()
+        except Exception as e:
+            raise e
+
+    async def insert_one_hour_ohlc(self, symbol, datetime, open, high, low, close, volume):
+        print(f"{symbol}, {datetime}, {open=}, {high=}, {low=}, {close=}, {volume=}")
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                    "INSERT IGNORE INTO one_hour_ohlc(symbol, datetime, open, high, low, close, volume) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (symbol, datetime, open, high, low, close, volume)
+                    )
+                    await conn.commit()
+        except Exception as e:
+            raise e
+        
+    async def update_heikin_ashi(self, ha_open, ha_high, ha_low, ha_close, symbol, datetime_val, table):
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    query = f"UPDATE {table} SET ha_open ='{ha_open}', ha_high ='{ha_high}', ha_low ='{ha_low}', ha_close ='{ha_close}' WHERE symbol = '{symbol}' AND datetime = '{datetime_val}';"
+                    #print(query)
+                    await cur.execute(query)
+                    await conn.commit()
+        except Exception as e:
+            raise e   
+                
+    async def update_pre_market_steps(self, id, last_status, last_record_date):
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    query = f"update pre_market_steps set last_execution = current_timestamp(), last_status = {last_status}, last_record_date  = '{last_record_date}' where id = {id};"
+                    await cur.execute(query)
+                    await conn.commit()
+        except Exception as e:
+            raise e
+
+    async def get_basket_stocks_all(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = "SELECT s.symbol, i.symbol as icici_code FROM basket_stocks s inner join all_stocks i on s.symbol = i.exchange_code;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df 
+    
+    async def get_unprocessed_dates(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT distinct `datetime` FROM daily_ohlc where processed = 0 order by `datetime` desc Limit 5;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df
+
+    async def get_daily_ohlc_by_symbol(self, symbol):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT symbol, datetime, open, high, low, close, volume FROM daily_ohlc where symbol = '{symbol}' order by `datetime`;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df
+            
+    async def get_null_ohlc(self, symbol, tablename):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT datetime, open, high, low, close FROM {tablename} where symbol = '{symbol}' and ha_open is NULL order by `datetime`;"
+                print(query)
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df        
+
+    async def get_prior_rows(self, symbol, threshold, tablename):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT datetime, open, high, low, close FROM {tablename} where symbol = '{symbol}' and datetime < '{threshold}' order by `datetime` desc Limit 5;"
+                print(query)
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df  
+    async def get_fivemin_ohlc_last_datetime(self, symbol):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT datetime FROM five_min_ohlc where symbol = '{symbol}' order by datetime desc Limit 1;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df
+    
+    async def get_fifteen_min_ohlc_last_datetime(self, symbol):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT datetime FROM fifteen_min_ohlc where symbol = '{symbol}' order by datetime desc Limit 1;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df  
+    async def get_thirtymin_ohlc_by_symbol(self, symbol):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT symbol, datetime, open, high, low, close, volume FROM thirty_min_ohlc where symbol = '{symbol}' order by `datetime` Limit 205;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df   
+    async def get_fifteenmin_ohlc_by_symbol(self, symbol):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT symbol, datetime, open, high, low, close, volume FROM fifteen_min_ohlc where symbol = '{symbol}' order by `datetime` Limit 205;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df   
+    async def get_onehour_ohlc_by_symbol(self, symbol):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT symbol, datetime, open, high, low, close, volume FROM one_hour_ohlc where symbol = '{symbol}' order by `datetime` Limit 205;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df  
+    async def get_basket_symbols_to_trade_all(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT symbol FROM basket_stocks;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df  
+
+    async def get_monitor_symbols_to_trade(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT symbol FROM monitor_symbols;;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df  
+
+    async def get_active_basket_symbols(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT distinct b.option_type, i.instrument_token, i.tradingsymbol FROM instruments i inner join basket_stocks b on i.tradingsymbol = b.symbol where exchange = 'NSE';"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df
+      
     async def pre_process_logs(self, date_log, module, activity, important_data, priority):
         try:
             async with self.pool.acquire() as conn:
@@ -148,27 +407,7 @@ class dbconnection:
                     await conn.commit()
         except Exception as e:
             raise e
-    async def get_strategy_trade_summary(self):
-        async with self.pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(f"SELECT T.id, S.strategy_name, S.Symbol, S.live, T.status, T.active, T.start_time FROM Strategy_trades T left join Strategies S on T.strategy_id = S.id where `date` = curdate();")
-                data = await cur.fetchall()
-        columns = [desc[0] for desc in cur.description]
-        df = pd.DataFrame(data, columns=columns)
-        return df
-    # update function
-    
-    async def insert_trade_book(self, order_id, transaction_type, price_executed, status, intent, client_price, symbol, qty, stop_loss, main_order_id, target=0):
-        try:
-            async with self.pool.acquire() as conn:
-                async with conn.cursor() as cur:
-                    await cur.execute(
-                    "INSERT INTO Trade_Book(broker_id, transaction_type, price_executed, status, intent, client_price, symbol, qty,  stop_loss,  main_order_id, target) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                    (order_id, transaction_type, price_executed, status, intent, client_price, symbol, qty, stop_loss,  main_order_id, target)
-                    )
-                    await conn.commit()
-        except Exception as e:
-            raise e
+
     async def insert_trade_log(self, date_log, module, activity, important_data, priority, strategy_trade_id, timestamp):
         try:
             async with self.pool.acquire() as conn:
@@ -180,17 +419,6 @@ class dbconnection:
                     await conn.commit()
         except Exception as e:
             raise e
-        
-    async def updateOrder(self, status, price_executed, broker_id):
-        try:
-            async with self.pool.acquire() as conn:
-                async with conn.cursor() as cur:
-                    query = f"update trade_book set `status` = '{status}', price_executed = '{price_executed}', execution_time = curtime() where broker_id = '{broker_id}';"
-                    await cur.execute(query)
-                    await conn.commit()
-        except Exception as e:
-            raise e    
-        
     async def run_query(self, query):
         print(query)
         try:
@@ -199,76 +427,19 @@ class dbconnection:
                     await cur.execute(query)
                     await conn.commit()
         except Exception as e:
-            print(e)
             raise e
-    async def update_status_by_id(self, order_id, new_status):
-        try:
-            async with self.pool.acquire() as conn:
-                async with conn.cursor() as cur:
-                    query = f"Update Trade_Book set status = {new_status}, execution_time = curtime() where id = {order_id};"
-                    await cur.execute(query)
-                    await conn.commit()
-        except Exception as e:
-            raise e
-    async def update_tradebook_stoploss_status(self, orderid, StopLossStatus):
-        try:
-            async with self.pool.acquire() as conn:
-                async with conn.cursor() as cur:
-                    query = f"Update Trade_Book set StopLossStatus = {StopLossStatus} where broker_id = '{orderid}'";
-                    await cur.execute(query)
-                    await conn.commit()
-        except Exception as e:
-            raise e
-    async def update_tradebook_mainorderid(self, orderid, neworderid):
-        try:
-            async with self.pool.acquire() as conn:
-                async with conn.cursor() as cur:
-                    query = f"Update Trade_Book set main_order_id = '{orderid}' where broker_id = '{neworderid}'"
-                    await cur.execute(query)
-                    await conn.commit()
-        except Exception as e:
-            raise e
-    async def update_tradebook_status(self, orderid, status, price_executed):
-        try:
-            async with self.pool.acquire() as conn:
-                async with conn.cursor() as cur:
-                    query = f"Update Trade_Book set status = {status}, price_executed = '{price_executed}' where broker_id = '{orderid}'";
-                    await cur.execute(query)
-                    await conn.commit()
-        except Exception as e:
-            raise e
+
     async def close_pool(self):
             self.pool.close()
             await self.pool.wait_closed()
             #print('Pool closed')
 
-    async def get_trade_book_by_strategy_trade_id(self, strategy_trades_id):
-        try:
-            async with self.pool.acquire() as conn:
-                async with conn.cursor() as cur:
-                    await cur.callproc("GetTradeBookByStrategyTradeID", [strategy_trades_id])
-                    if cur.rowcount:
-                        data = await cur.fetchall()
-                        if data is not None:
-                            columns = [desc[0] for desc in cur.description]
-                            df = pd.DataFrame(data, columns=columns)
-                            return df
-                        else:
-                            print(' inner No data found get_trade_book_by_strategy_trade_id')
-                            return pd.DataFrame()
-                    else:
-                        print('No data found get_trade_book_by_strategy_trade_id')
-                        return pd.DataFrame()
-        except Exception as e:
-            print(f"An error occurred: {str(e)}")
-            return None
-    
-    async def insert_option_data_one_min(self, datetime_val, open_val, high, low, close, ha_open, ha_high, ha_low, ha_close, bol_up, bol_down):
-        try:
-            async with self.pool.acquire() as conn:
-                async with conn.cursor() as cur:
-                    params = (datetime_val, open_val, high, low, close, ha_open, ha_high, ha_low, ha_close, bol_up, bol_down)
-                    await cur.callproc('InsertOptionDataOneMin', params)
-                    await conn.commit()
-        except Exception as e:
-            print(f"An error occurred: {str(e)}")
+    async def test_NBCC(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT datetime, open, high, low, close FROM fifteen_min_ohlc where symbol = 'NBCC' and histogram is NULL;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df

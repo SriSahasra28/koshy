@@ -15,7 +15,7 @@ class zeroda():
         l = login(False)
         self.mode = mode
         self.clock = Clock(test_date)
-        status, self.kite, kws = l.InitiateZerodha()
+        status, self.kite, kws, token = l.InitiateZerodha()
         self.status = status
         print('zerodha: ', self.getCurrentDateTime())
         

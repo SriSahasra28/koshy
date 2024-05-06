@@ -31,6 +31,43 @@ class DBHelper:
         df = pd.read_sql("SELECT * FROM settings", con=con)
         con.close()
         return df
+    def get_credentials(self):
+        con = sqlConnector.connect(host=self.server, user=self.user, passwd=self.passwd, database=self.database, port=self.port, auth_plugin='mysql_native_password')
+        df = pd.read_sql("SELECT * FROM credentials;", con=con)
+        con.close()
+        return df
+    
+    def get_active_basket_symbols(self):
+        con = sqlConnector.connect(host=self.server, user=self.user, passwd=self.passwd, database=self.database, port=self.port, auth_plugin='mysql_native_password')
+        query = "SELECT distinct b.option_type, i.instrument_token, i.tradingsymbol FROM instruments i inner join basket_stocks b on i.tradingsymbol = b.symbol where exchange = 'NSE'"
+        df = pd.read_sql(query, con=con)
+        con.close()
+        return df
+
+    def truncate_latest_price(self):
+        con = sqlConnector.connect(host=self.server, user=self.user, passwd=self.passwd, database=self.database, port=self.port, auth_plugin='mysql_native_password')
+        query = "truncate table latest_price"
+        cur = con.cursor()
+        cur.execute(query)
+        con.commit()
+        con.close()
+        
+    def get_tokens_for_tick(self):
+        con = sqlConnector.connect(host=self.server, user=self.user, passwd=self.passwd, database=self.database, port=self.port, auth_plugin='mysql_native_password')
+        cursor = con.cursor()
+        query = "SELECT i.instrument_token as token FROM instruments i inner join basket_stocks b on i.tradingsymbol = b.symbol"
+        df = pd.read_sql(query, con=con)
+        con.close()
+        return df['token'].astype(int).values.tolist()
+    def initialize_latest_price(self, tokens):
+        con = sqlConnector.connect(host=self.server, user=self.user, passwd=self.passwd, database=self.database, port=self.port, auth_plugin='mysql_native_password')
+        cursor = con.cursor()
+        query = "INSERT INTO latest_price(i) VALUES (%s)"
+        for token in tokens:
+            cursor.execute(query, (token,))
+        con.commit()
+        cursor.close()
+        con.close()
     def get_nearest_three_expiry(self, index):
         con = sqlConnector.connect(host=self.server, user=self.user, passwd=self.passwd, database=self.database, port=self.port, auth_plugin='mysql_native_password')
         query = f"SELECT distinct expiry FROM instruments i where i.exchange = 'NFO' and instrument_type = 'CE' and expiry >= curdate() and i.name = '{index}' order by expiry Limit 3;"
@@ -44,7 +81,38 @@ class DBHelper:
         df = pd.read_sql(query, con=con)
         con.close()
         return df
-   
+    def insert_market_data_intraday_V2(self, instrument_token, last_price, last_traded_quantity, average_traded_price, volume_traded, total_buy_quantity, total_sell_quantity, open, high, low, close, change, last_trade_time):
+        con = sqlConnector.connect(host=self.server, user=self.user, passwd=self.passwd, database=self.database, port=self.port, auth_plugin='mysql_native_password')
+        cursor = con.cursor()
+        params = (instrument_token, last_price, last_traded_quantity, average_traded_price, volume_traded, total_buy_quantity, total_sell_quantity, open, high, low, close, change, last_trade_time)
+        cursor.callproc('InsertMarketData_v2', params)
+        con.commit()
+        cursor.close()
+        con.close()
+
+    def InsertIntoMonitorSymbols(self, instrument_token, symbol, expiry, strike, option_type, ltp, stock_symbol):
+        con = sqlConnector.connect(host=self.server, user=self.user, passwd=self.passwd, database=self.database, port=self.port, auth_plugin='mysql_native_password')
+        cursor = con.cursor()
+        params = (instrument_token, symbol, expiry, strike, option_type, ltp, stock_symbol)
+        cursor.callproc('InsertIntoMonitorSymbols', params)
+        con.commit()
+        cursor.close()
+        con.close()
+        
+    def update_latest_price(self, i_value, c_value, v_value, a_value):
+        con = sqlConnector.connect(host=self.server, user=self.user, passwd=self.passwd, database=self.database, port=self.port, auth_plugin='mysql_native_password')
+        cursor = con.cursor()
+        params = (i_value, c_value, v_value, a_value)
+        cursor.callproc('UpdateLatestPrice', params)
+        con.commit()
+        cursor.close()
+        con.close()
+    def get_instrument_token_index(self, name):
+        con = sqlConnector.connect(host=self.server, user=self.user, passwd=self.passwd, database=self.database, port=self.port, auth_plugin='mysql_native_password')
+        query = f"SELECT instrument_token FROM Instruments WHERE name = '{name}' AND instrument_type = 'FUT' AND expiry > CURDATE() ORDER BY expiry LIMIT 1;"
+        df = pd.read_sql(query, con=con)
+        con.close()
+        return df
     def get_monitor_symbols(self, index_name, strike_price, option_type, expiry):
         con = sqlConnector.connect(host=self.server, user=self.user, passwd=self.passwd, database=self.database, port=self.port, auth_plugin='mysql_native_password')
         query = f"SELECT * FROM monitor_symbols where symbol = '{index_name}' and expiry = '{expiry}' and strike = {strike_price} and option_type = '{option_type}' and `active` = 1;"
@@ -173,31 +241,30 @@ class DBHelper:
 
     def getAllInstruments(self):
         con = sqlConnector.connect(host=self.server, user=self.user, passwd=self.passwd, database=self.database, port=self.port, auth_plugin='mysql_native_password')
-        query = "SELECT instrument_token, tradingsymbol, name, expiry, strike, lot_size, instrument_type, segment FROM instruments_zerodha;"
+        query = "SELECT * FROM instruments where exchange = 'NFO' and expiry >= curdate() order by expiry;"
         df = pd.read_sql(query, con=con)
         con.close()
         return df    
-
+    
     def getAllInstruments_by_type(self, name, instrument_type):
         con = sqlConnector.connect(host=self.server, user=self.user, passwd=self.passwd, database=self.database, port=self.port, auth_plugin='mysql_native_password')
-        query = f"SELECT instrument_token, tradingsymbol, name, expiry, strike, lot_size, instrument_type, segment FROM instruments_zerodha where `name` = '{name}' and instrument_type = '{instrument_type}';"
+        query = f"SELECT instrument_token, tradingsymbol, name, expiry, strike, lot_size, instrument_type FROM instruments where `name` = '{name}' and instrument_type = '{instrument_type}';"
         df = pd.read_sql(query, con=con)
         con.close()
         return df   
     def get_instrument_token_option(self, index_code, right, expiry_date, strike_price):
         con = sqlConnector.connect(host=self.server, user=self.user, passwd=self.passwd, database=self.database, port=self.port, auth_plugin='mysql_native_password')
-        query = f"SELECT instrument_token FROM instruments_zerodha where `name` = '{index_code}' and instrument_type = '{right}' and expiry = '{expiry_date}' and strike = '{strike_price}';"
+        query = f"SELECT instrument_token FROM instruments where `name` = '{index_code}' and instrument_type = '{right}' and expiry = '{expiry_date}' and strike = '{strike_price}';"
         df = pd.read_sql(query, con=con)
         con.close()
         return df
 
     def get_tradingsymbol_option(self, index_code, right, expiry_date, strike_price):
         con = sqlConnector.connect(host=self.server, user=self.user, passwd=self.passwd, database=self.database, port=self.port, auth_plugin='mysql_native_password')
-        query = f"SELECT tradingsymbol FROM instruments_zerodha where `name` = '{index_code}' and instrument_type = '{right}' and expiry = '{expiry_date}' and strike = '{strike_price}';"
+        query = f"SELECT tradingsymbol FROM instruments where `name` = '{index_code}' and instrument_type = '{right}' and expiry = '{expiry_date}' and strike = '{strike_price}';"
         df = pd.read_sql(query, con=con)
         con.close()
         return df
-
 
     def get_orders(self):
         con = sqlConnector.connect(host=self.server, user=self.user, passwd=self.passwd, database=self.database, port=self.port, auth_plugin='mysql_native_password')
@@ -215,6 +282,17 @@ class DBHelper:
         con.commit()
         con.close()
     
+    @staticmethod
+    def update_access_token(access_token, login_date):
+        set = settings.get_db()
+        con = sqlConnector.connect(host=set[2], user=set[0], passwd=set[1], database=set[4], port=set[3], auth_plugin='mysql_native_password')
+        query = f"update credentials set access_code = '{access_token}', login_date = '{login_date}';"
+        print(query)
+        cur = con.cursor()
+        cur.execute(query)
+        con.commit()
+        con.close()
+        
     def get_strategy_details(self, id):
         set = settings.get_db()
         con = sqlConnector.connect(host=set[2], user=set[0], passwd=set[1], database=set[4], port=set[3], auth_plugin='mysql_native_password')

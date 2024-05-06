@@ -21,25 +21,29 @@ class login():
         self.helper = DBHelper()
         
     def InitiateZerodha(self):
-        file = ''
-        if platform.system() == "Windows":
-            file = open("background\\access.txt", "r")
-        else:
-            file = open("background/access.txt", "r")
-        keys = file.read().split()
-        last_login_date_str = keys[0].replace('date:','')
-        token = keys[1].replace('token:','')
-        last_login_date = dtm.strptime(last_login_date_str, "%Y-%m-%d").date()
+        # file = ''
+        # if platform.system() == "Windows":
+        #     file = open("background\\access.txt", "r")
+        # else:
+        #     file = open("background/access.txt", "r")
+        # keys = file.read().split()
+        # last_login_date_str = keys[0].replace('date:','')
+        # token = keys[1].replace('token:','')
+        # last_login_date = dtm.strptime(last_login_date_str, "%Y-%m-%d").date()
+        df_cred = self.helper.get_credentials()
+        last_login_date = df_cred.login_date.iloc[0]
+        token = df_cred.access_code.iloc[0]
+        #print(f"In Login {token =} {last_login_date=}")
         self.kite = KiteConnect(api_key=self.api_key)
         if self.force_login is False and last_login_date == dtm.now().date():
             #print('Access Key Available. Skipping fresh login')            
             try:
                 self.kite.set_access_token(token)
                 kws = KiteTicker(self.api_key, token, debug=True, reconnect=True, reconnect_max_tries=150)
-                return True, self.kite, kws
+                return True, self.kite, kws, token
             except Exception as e:
                 print(f"Error during login to kite:{e}")
-                return False, None
+                return False, None, None
         else:
             try:
                 print('Attempting Fresh Login')
@@ -77,10 +81,10 @@ class login():
                         f.flush()
                 print('access token saved to file')
                 kws = KiteTicker(self.api_key, token, debug=True, reconnect=True, reconnect_max_tries=150)
-                return True, self.kite, kws
+                return True, self.kite, kws, AccessToken
             except Exception as e:
                 print(f"Error initial login to kite: {e}")
-                return False, None, None
+                return False, None, None, None
             
     def download_instruments(self, exch):
         print('downloading instruments')
@@ -100,7 +104,7 @@ class login():
             print('No data returned')
             return
         elif exch == 'NSE':
-            df.expiry = '2023-01-01'
+            df.expiry = '2024-01-01'
         print(df.tail())
         self.helper.update_instruments(df, exch)
         print('downloaded instruments')
