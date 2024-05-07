@@ -1179,7 +1179,7 @@ async def main():
             if result == 1:
                 await db.update_pre_market_steps(id, last_status=1, last_record_date=current_date_string)
         elif action == 'update_symbols_to_monitor':
-            result, error, count_symbol = await update_symbols_to_monitor(df_all_stocks)
+            result, error, count_symbol = await update_symbols_to_monitor()
             current_date_string = datetime.now().strftime("%Y-%m-%d")
             important_data = f"{result=} {error=} {count_symbol=} {id=}"
             await db.pre_process_logs(current_date_string, 'update_symbols_to_monitor', 'function result', important_data, 1)
