@@ -390,11 +390,11 @@ class Start(object):
 async def main():
     start = Start()
     current_datetime = datetime.now()
-    await start.start_pool()
-    await start.download_current_data()
-    await asyncio.sleep(1)
-    await start.close_pool()
-    return
+    # await start.start_pool()
+    # await start.download_current_data()
+    # await asyncio.sleep(1)
+    # await start.close_pool()
+    # return
     while True:
         CurrentDateTime = datetime.now()
         current_time = CurrentDateTime.time()
