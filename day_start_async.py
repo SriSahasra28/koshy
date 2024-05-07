@@ -1122,6 +1122,7 @@ async def update_symbols_to_monitor():
                 instrument_type = row['instrument_type']
                 print(f"{instrument_token}, {tradingsymbol}, {expiry=}, {strike=}, {instrument_type=}")
                 await db.insert_into_monitor_symbols(instrument_token, tradingsymbol, expiry, strike, instrument_type, ltp, symbol)
+    return 1, 'None', 1
 async def main():
     loop = asyncio.get_event_loop()
     await db.create_pool(loop)
