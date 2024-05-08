@@ -784,14 +784,16 @@ async def download_fivemin_ohlc(df_all_stocks):
             startdate = last_date
             #sdate_iso = last_date.isoformat()[:10] + 'T09:15:00.000Z'
             startdate_str = last_date.strftime('%d-%m-%Y HH:MM:00')
-        
+        print('Timestamp class instance ', type(Timestamp))
         if not isinstance(startdate, (date, Timestamp)):
             print('in if not isinstance')
             if isinstance(startdate, Timestamp):
                 startdate = startdate.to_pydatetime().date()
             else:
                 print('in else')
-                startdate = startdate.date()   
+                startdate = startdate.date()
+        else:
+            print('in outer else')   
         print(type(startdate), type(last_working_day))   
         print(f"{startdate=} {last_working_day=}")
         if startdate >= last_working_day:

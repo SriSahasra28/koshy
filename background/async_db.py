@@ -211,6 +211,18 @@ class dbconnection:
                     await conn.commit()
         except Exception as e:
             raise e
+
+    async def insert_one_min_ohlc(self, symbol, datetime, open, high, low, close, volume):
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                    "INSERT IGNORE INTO one_min_ohlc(symbol, datetime, open, high, low, close, volume) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (symbol, datetime, open, high, low, close, volume)
+                    )
+                    await conn.commit()
+        except Exception as e:
+            raise e
     async def insert_thirty_min_ohlc(self, symbol, datetime, open, high, low, close, volume):
         try:
             async with self.pool.acquire() as conn:
@@ -329,7 +341,17 @@ class dbconnection:
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
         return df
-    
+
+    async def get_ohlc_last_datetime(self, symbol, table_name):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT datetime FROM {table_name} where symbol = '{symbol}' order by datetime desc Limit 1;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df
+
     async def get_fifteen_min_ohlc_last_datetime(self, symbol):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
