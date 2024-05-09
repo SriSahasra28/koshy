@@ -782,7 +782,7 @@ async def download_fivemin_ohlc(df_all_stocks):
             if log == True:
                 print(f"{exchange_code} {last_date=}")
             startdate = last_date
-            #sdate_iso = last_date.isoformat()[:10] + 'T09:15:00.000Z'
+            startdate = startdate.to_pydatetime().date()
             startdate_str = last_date.strftime('%d-%m-%Y HH:MM:00')
         print('Timestamp class instance ', type(Timestamp))
         if not isinstance(startdate, (date, Timestamp)):
@@ -849,6 +849,96 @@ async def download_fivemin_ohlc(df_all_stocks):
     else:
         return 0, 'Unknown Error', count
 
+async def download_onemin_ohlc(df_all_stocks):
+    global last_working_day
+    last_working_day_str = last_working_day.strftime('%d-%m-%Y')
+    count = 0
+    table_name = 'one_min_ohlc'
+    for index, row in df_all_stocks.iterrows():
+        exchange_code = row['symbol']
+        df_last_datetime = await db.get_ohlc_last_datetime(exchange_code, table_name)
+        len_df_last_datetime = len(df_last_datetime)
+        if log == True:
+            print(f"{exchange_code=} {len_df_last_datetime=}")
+        if len(df_last_datetime) == 0:
+            if log == True:
+                print('lastdate not found for ', exchange_code)
+            # download 200 days data
+            days_prior = yesterday - timedelta(days=8)
+            startdate = days_prior
+            #sdate_iso = days_prior.isoformat()[:10] + 'T09:15:00.000Z'
+            startdate_str = days_prior.strftime('%d-%m-%Y HH:MM:00')
+        else:
+            last_date = df_last_datetime.datetime.iloc[0]
+            if log == True:
+                print(f"{exchange_code} {last_date=}")
+            startdate = last_date
+            startdate = startdate.to_pydatetime().date()
+            startdate_str = last_date.strftime('%d-%m-%Y HH:MM:00')
+        print('Timestamp class instance ', type(Timestamp))
+        if not isinstance(startdate, (date, Timestamp)):
+            print('in if not isinstance')
+            if isinstance(startdate, Timestamp):
+                startdate = startdate.to_pydatetime().date()
+            else:
+                print('in else')
+                startdate = startdate.date()
+        else:
+            print('in outer else')   
+        print(type(startdate), type(last_working_day))   
+        print(f"{startdate=} {last_working_day=}")
+        if startdate >= last_working_day:
+            last_working_day_str = last_working_day.strftime('%d-%m-%Y')
+            if log == True:
+                important_data = f"{exchange_code} startdate:{startdate_str} > last_working_day:{last_working_day_str}"
+                print(important_data)
+            await db.pre_process_logs(today_str, 'download_fivemin_ohlc', 'startdate >= last_working_dayignore', important_data, 0)
+            continue
+        if log == True:
+            important_data = f"{exchange_code=} {startdate_str=} {last_working_day_str=}"
+            await db.pre_process_logs(today_str, 'download_fivemin_ohlc', 'download using zerodha', important_data, 0)
+
+        result = 0
+        df = ""
+        try:
+            if log == True:
+                print('gethistorical_daily', exchange_code)
+            df = await get_data_zerodha('minute', startdate, last_working_day, exchange_code)
+            result = 1
+        except Exception as e:
+            if log == True:
+                print('Error in downloading', exchange_code, e)
+            result = -1
+
+        if result == -1:
+            if log == True:
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'download using history api', 'Timeout Error', 4)
+            continue
+        if type(df) is str:
+            if log == True:
+                print(df) 
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'download using history api', 'df str', 4)
+            continue
+        if len(df) == 0:
+            if log == True:
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'Data not available', df, 4)
+            continue
+
+        for index, row in df.iterrows():
+            date_val = row['date']
+            open_val = row['open']
+            high_val = row['high']
+            low_val = row['low']
+            close_val = row['close']
+            volume_val = row['volume']
+            await db.insert_one_min_ohlc(exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val)
+            if log == True:
+                print('insert_one_min', exchange_code, date_val)
+        count += 1
+    if count > 0:
+        return 1, 'None', count
+    else:
+        return 0, 'Unknown Error', count
 async def download_thirtymin_ohlc(df_all_stocks):
     print('download_thirtymin_ohlc')
     global last_working_day
@@ -872,6 +962,7 @@ async def download_thirtymin_ohlc(df_all_stocks):
             if log == True:
                 print(f"{exchange_code} {last_date=}")
             startdate = last_date
+            startdate = startdate.to_pydatetime().date()
             startdate_str = last_date.strftime('%d-%m-%Y HH:MM:00')
         if not isinstance(startdate, date):
             startdate = startdate.date()            
@@ -956,7 +1047,7 @@ async def download_fifteen_min_ohlc(df_all_stocks):
             if log == True:
                 print(f"{exchange_code} {last_date=}")
             startdate = last_date
-            #sdate_iso = last_date.isoformat()[:10] + 'T09:15:00.000Z'
+            startdate = startdate.to_pydatetime().date()
             startdate_str = last_date.strftime('%d-%m-%Y HH:MM:00')
         print(startdate, type(startdate))
         print(last_working_day, type(last_working_day))    
@@ -1030,14 +1121,14 @@ async def download_1hour_ohlc(df_all_stocks):
             # download 200 days data
             days_prior = yesterday - timedelta(days=50)
             startdate = days_prior
-            #sdate_iso = days_prior.isoformat()[:10] + 'T09:15:00.000Z'
+            
             startdate_str = days_prior.strftime('%d-%m-%Y HH:MM:00')
         else:
             last_date = df_last_datetime.datetime.iloc[0]
             if log == True:
                 print(f"{exchange_code} {last_date=}")
             startdate = last_date
-            #sdate_iso = last_date.isoformat()[:10] + 'T09:15:00.000Z'
+            startdate = startdate.to_pydatetime().date()
             startdate_str = last_date.strftime('%d-%m-%Y HH:MM:00')
         if not isinstance(startdate, date):
             startdate = startdate.date()

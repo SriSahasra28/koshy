@@ -193,6 +193,7 @@ class Start(object):
                     startdate = startdate.replace(hour=9, minute=15)
                 else:
                     startdate = last_date# + timedelta(minutes=5)
+                    #startdate = startdate.to_pydatetime().date()
                 print(f"{last_date=} {startdate=}")
             df = ""
 
@@ -239,6 +240,7 @@ class Start(object):
                         startdate = startdate.replace(hour=9, minute=15)
                     else:
                         startdate = last_date #+ timedelta(minutes=15)
+                        
                     print(f"{last_date=} {startdate=}")
 
                 df = await self.get_data_zerodha('15minute', startdate, enddate, exchange_code)
