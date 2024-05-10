@@ -346,6 +346,50 @@ async def process_heikinashi(unproc_datetime, df_new, df_old, table, exchange_co
         ha_close = row['ha_close']
         await db.update_heikin_ashi(ha_open, ha_high, ha_low, ha_close, exchange_code, datetime_val, table)
 
+async def process_min_heikin(df_all_stocks, interval):
+    print('in process_min_heikin')
+    count = 0
+    table_name = 'one_min_ohlc'
+    if interval == '5minute':
+        table_name = 'five_min_ohlc'
+    elif interval == '3minute':
+        table_name = 'three_min_ohlc'
+    elif interval == '10minute':
+        table_name = 'ten_min_ohlc'
+    elif interval == '15minute':
+        table_name = 'fifteen_min_ohlc'
+    elif interval == '30minute':
+        table_name = 'thirty_min_ohlc'
+    elif interval == '60minute':
+        table_name = 'one_hour_ohlc'
+    for index, row in df_all_stocks.iterrows():
+        count += 1
+        exchange_code = row['symbol']
+        df_new = await db.get_null_ohlc(exchange_code, table_name)
+        if len(df_new) == 0:
+            if log == True:
+                print('NULL ohlc not found No need to process', exchange_code, table_name)
+            continue
+        else:
+            df_new['open'] = df_new['open'].astype(float)
+            df_new['high'] = df_new['high'].astype(float)
+            df_new['low'] = df_new['low'].astype(float)
+            df_new['close'] = df_new['close'].astype(float)
+        unproc_datetime = df_new.datetime.iloc[0]
+        df_old = await db.get_prior_rows(exchange_code, unproc_datetime, table_name)
+        if len(df_old) == 0:
+            if log == True:
+                print('data not found - get_prior_thirty_rows', table_name)
+            process_fresh = True
+        else:
+            df_new['open'] = df_new['open'].astype(float)
+            df_new['high'] = df_new['high'].astype(float)
+            df_new['low'] = df_new['low'].astype(float)
+            df_new['close'] = df_new['close'].astype(float)
+        await process_heikinashi(unproc_datetime, df_new, df_old, table_name, exchange_code)
+        
+    return 1, None, count
+
 async def process_fivemin_heikin(df_all_stocks):
     print('in process_fivemin_heikin')
     count = 0
@@ -1316,8 +1360,8 @@ async def main():
     global last_working_day
     # Recreate a list of symbols for which data downloading is required
     df_all_stocks = await db.get_monitor_symbols_to_trade()
-    await download_ohlc(df_all_stocks, '3minute')
-    await download_ohlc(df_all_stocks, '10minute')
+    await process_min_heikin(df_all_stocks, '3minute')
+    await process_min_heikin(df_all_stocks, '10minute')
     return
     df_all_stocks = await db.get_monitor_symbols_to_trade()
     df = await db.get_pre_market_steps()
