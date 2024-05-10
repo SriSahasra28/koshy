@@ -759,6 +759,98 @@ async def process_indicators_daily(df):
 
     return 1, None, 1
 
+async def download_ohlc(df_all_stocks, interval):
+    global last_working_day
+    last_working_day_str = last_working_day.strftime('%d-%m-%Y')
+    count = 0
+    table_name = 'one_min_ohlc'
+    if interval == '5minute':
+        table_name = 'five_min_ohlc'
+    elif interval == '3minute':
+        table_name = 'three_min_ohlc'
+    elif interval == '10minute':
+        table_name = 'ten_min_ohlc'
+    elif interval == '15minute':
+        table_name = 'fifteen_min_ohlc'
+    elif interval == '30minute':
+        table_name = 'thirty_min_ohlc'
+    elif interval == '60minute':
+        table_name = 'one_hour_ohlc'
+    for index, row in df_all_stocks.iterrows():
+        exchange_code = row['symbol']
+        df_last_datetime = await db.get_ohlc_last_datetime(exchange_code, table_name)
+        len_df_last_datetime = len(df_last_datetime)
+        if log == True:
+            print(f"{exchange_code=} {len_df_last_datetime=}")
+        if len(df_last_datetime) == 0:
+            if log == True:
+                print('lastdate not found for ', exchange_code)
+            # download 200 days data
+            days_prior = yesterday - timedelta(days=90)
+            startdate = days_prior
+            #sdate_iso = days_prior.isoformat()[:10] + 'T09:15:00.000Z'
+            startdate_str = days_prior.strftime('%d-%m-%Y HH:MM:00')
+        else:
+            last_date = df_last_datetime.datetime.iloc[0]
+            if log == True:
+                print(f"{exchange_code} {last_date=}")
+            startdate = last_date
+            startdate = startdate.to_pydatetime().date()
+            startdate_str = last_date.strftime('%d-%m-%Y HH:MM:00')
+
+        if startdate >= last_working_day:
+            last_working_day_str = last_working_day.strftime('%d-%m-%Y')
+            if log == True:
+                important_data = f"{interval} {exchange_code} startdate:{startdate_str} > last_working_day:{last_working_day_str}"
+                print(important_data)
+            await db.pre_process_logs(today_str, 'download_ohlc', 'startdate >= last_working_dayignore', important_data, 0)
+            continue
+        if log == True:
+            important_data = f"{interval} {exchange_code=} {startdate_str=} {last_working_day_str=}"
+            await db.pre_process_logs(today_str, 'download_ohlc', 'download using zerodha', important_data, 0)
+
+        result = 0
+        df = ""
+        try:
+            if log == True:
+                print('gethistorical_daily', exchange_code)
+            df = await get_data_zerodha(interval, startdate, last_working_day, exchange_code)
+            result = 1
+        except Exception as e:
+            if log == True:
+                print('Error in downloading', exchange_code, e)
+            result = -1
+
+        if result == -1:
+            if log == True:
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'download using history api', 'Timeout Error', 4)
+            continue
+        if type(df) is str:
+            if log == True:
+                print(df) 
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'download using history api', 'df str', 4)
+            continue
+        if len(df) == 0:
+            if log == True:
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'Data not available', df, 4)
+            continue
+
+        for index, row in df.iterrows():
+            date_val = row['date']
+            open_val = row['open']
+            high_val = row['high']
+            low_val = row['low']
+            close_val = row['close']
+            volume_val = row['volume']
+            await db.insert_ohlc_data(table_name, exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val)
+            if log == True:
+                print('insert_' + table_name, exchange_code, date_val)
+        count += 1
+    if count > 0:
+        return 1, 'None', count
+    else:
+        return 0, 'Unknown Error', count
+
 async def download_fivemin_ohlc(df_all_stocks):
     global last_working_day
     last_working_day_str = last_working_day.strftime('%d-%m-%Y')
@@ -773,7 +865,7 @@ async def download_fivemin_ohlc(df_all_stocks):
             if log == True:
                 print('lastdate not found for ', exchange_code)
             # download 200 days data
-            days_prior = yesterday - timedelta(days=8)
+            days_prior = yesterday - timedelta(days=90)
             startdate = days_prior
             #sdate_iso = days_prior.isoformat()[:10] + 'T09:15:00.000Z'
             startdate_str = days_prior.strftime('%d-%m-%Y HH:MM:00')
@@ -864,7 +956,7 @@ async def download_onemin_ohlc(df_all_stocks):
             if log == True:
                 print('lastdate not found for ', exchange_code)
             # download 200 days data
-            days_prior = yesterday - timedelta(days=8)
+            days_prior = yesterday - timedelta(days=90)
             startdate = days_prior
             #sdate_iso = days_prior.isoformat()[:10] + 'T09:15:00.000Z'
             startdate_str = days_prior.strftime('%d-%m-%Y HH:MM:00')
@@ -954,7 +1046,7 @@ async def download_thirtymin_ohlc(df_all_stocks):
             if log == True:
                 print('lastdate not found for ', exchange_code)
             # download 200 days data
-            days_prior = yesterday - timedelta(days=8)
+            days_prior = yesterday - timedelta(days=90)
             startdate = days_prior
             startdate_str = days_prior.strftime('%d-%m-%Y HH:MM:00')
         else:
@@ -1223,9 +1315,10 @@ async def main():
     df= pd.DataFrame()
     global last_working_day
     # Recreate a list of symbols for which data downloading is required
-    #await update_symbols_to_monitor()
-    
-    #return
+    df_all_stocks = await db.get_monitor_symbols_to_trade()
+    await download_ohlc(df_all_stocks, '3minute')
+    await download_ohlc(df_all_stocks, '10minute')
+    return
     df_all_stocks = await db.get_monitor_symbols_to_trade()
     df = await db.get_pre_market_steps()
     if datetime.now().hour > 16:

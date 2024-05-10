@@ -211,7 +211,17 @@ class dbconnection:
                     await conn.commit()
         except Exception as e:
             raise e
-
+    async def insert_ohlc_data(self, table_name, symbol, datetime, open, high, low, close, volume):
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        f"INSERT IGNORE INTO {table_name} (symbol, datetime, open, high, low, close, volume) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                        (symbol, datetime, open, high, low, close, volume)
+                    )
+                    await conn.commit()
+        except Exception as e:
+            raise e
     async def insert_one_min_ohlc(self, symbol, datetime, open, high, low, close, volume):
         try:
             async with self.pool.acquire() as conn:
