@@ -445,6 +445,386 @@ async def process_fivemin_heikin(df_all_stocks):
         
     return 1, None, count
 
+async def process_fifteen_min_ema(df_all_stocks):
+    count = 0
+    process_fresh = False
+    for index, row in df_all_stocks.iterrows():
+        process_fresh = False
+        count += 1
+        exchange_code = row['symbol']
+        df2 = await db.get_fifteen_min_null_ema200(exchange_code)
+        if len(df2) == 0:
+            if log == True:
+                print('No need to process ', exchange_code)
+            continue
+        else:
+            df2['close'] = df2['close'].astype(float)
+        df = await db.get_fifteen_min_last_non_null_ema200(exchange_code)
+        if len(df) == 0:
+            if log == True:
+                print('data not found - get_fifteen_min_last_non_null_by_symbol')
+            process_fresh = True
+        else:
+            df['ema_200'] = df['ema_200'].astype(float)
+            df['ema_100'] = df['ema_100'].astype(float)
+            df['ema_50'] = df['ema_50'].astype(float)
+            df['ema_20'] = df['ema_20'].astype(float)
+        if process_fresh == True:
+            print('Processing Fresh ..........................')
+            close = df2['close'].to_numpy()
+            EMA_20 = await pine_ema(close, 20)
+            EMA_50 = await pine_ema(close, 50)
+            EMA_100 = await pine_ema(close, 100)
+            EMA_200 = await pine_ema(close, 200)
+            df2['EMA_20'] = EMA_20
+            df2['EMA_50'] = EMA_50
+            df2['EMA_100'] = EMA_100
+            df2['EMA_200'] = EMA_200
+            print(df2)
+            df2.replace({np.nan: None}, inplace=True)
+            ema_200_color = ema_100_color = ema_50_color = ema_20_color = ''
+            df2.replace({np.nan: None}, inplace=True)
+            for index, row in df2.iterrows():
+                datetime_val = row['datetime']  
+                ema_20_val = row['EMA_20'] 
+                ema_50_val = row['EMA_50']
+                EMA_100_val = row['EMA_100']
+                EMA_200_val = row['EMA_200']
+                ema_200_color = ema_100_color = ema_50_color = ema_20_color = 'SELL'
+                close_value = row['close']
+                if close_value > EMA_200_val:
+                    ema_200_color = 'BUY'
+                if close_value > EMA_100_val:
+                    ema_100_color = 'BUY'
+                if close_value > ema_50_val:
+                    ema_50_color = 'BUY'
+                if close_value > ema_20_val:
+                    ema_20_color = 'BUY'
+                await db.update_fifteen_min_ema(EMA_200_val, ema_200_color,EMA_100_val, ema_100_color, ema_50_val, ema_50_color, ema_20_val, ema_20_color, exchange_code, datetime_val)
+
+        elif process_fresh == False:
+            previous_ema_200 = df.iloc[0]['ema_200']
+            previous_ema_100 = df.iloc[0]['ema_100']
+            previous_ema_50 = df.iloc[0]['ema_50']
+            previous_ema_20 = df.iloc[0]['ema_20']
+            close_values = df2.close
+            i = 0
+            ema_200_color = ema_100_color = ema_50_color = ema_20_color = ''
+            for close_value in close_values:
+                ema_200_color = ema_100_color = ema_50_color = ema_20_color = 'SELL'
+                datetime_val = df2.iloc[i]['datetime']
+                
+                ema_200 = calculate_new_ema(close_value, previous_ema_200, 200)
+                if close_value > ema_200:
+                    ema_200_color = 'BUY'
+                
+                ema_100 = calculate_new_ema(close_value, previous_ema_100, 100)
+                if close_value > ema_100:
+                    ema_100_color = 'BUY'
+
+                ema_50 = calculate_new_ema(close_value, previous_ema_50, 50)
+                if close_value > ema_50:
+                    ema_50_color = 'BUY'
+
+                ema_20 = calculate_new_ema(close_value, previous_ema_20, 20)
+                if close_value > ema_20:
+                    ema_20_color = 'BUY'                 
+                previous_ema_200 = ema_200
+                previous_ema_100 = ema_100
+                previous_ema_50 = ema_50
+                previous_ema_20 = ema_20
+                print('Updating ', exchange_code)
+                await db.update_fifteen_min_ema(ema_200, ema_200_color,ema_100, ema_100_color, ema_50, ema_50_color, ema_20, ema_20_color, exchange_code, datetime_val)
+                i = i + 1
+    return 1, None, count
+
+async def process_thirty_min_ema(df_all_stocks):
+    count = 0
+    process_fresh = False
+    for index, row in df_all_stocks.iterrows():
+        count += 1
+        process_fresh = False
+        exchange_code = row['symbol']
+        df2 = await db.get_thirty_min_null_ema200(exchange_code)
+        if len(df2) == 0:
+            if log == True:
+                print('No need to Process 30 min ', exchange_code)
+            continue
+        else:
+            df2['close'] = df2['close'].astype(float)
+        df = await db.get_thirty_min_last_non_null_ema200(exchange_code)
+        if len(df) == 0:
+            if log == True:
+                print('data not found - get_thirty_min_last_non_null_ema200')
+            process_fresh = True
+        else:
+            df['ema_200'] = df['ema_200'].astype(float)
+            df['ema_100'] = df['ema_100'].astype(float)
+            df['ema_50'] = df['ema_50'].astype(float)
+            df['ema_20'] = df['ema_20'].astype(float)
+
+        if process_fresh == True:
+            print('Processing Fresh ..........................')
+            close = df2['close'].to_numpy()
+            EMA_20 = await pine_ema(close, 20)
+            EMA_50 = await pine_ema(close, 50)
+            EMA_100 = await pine_ema(close, 100)
+            EMA_200 = await pine_ema(close, 200)
+            df2['EMA_20'] = EMA_20
+            df2['EMA_50'] = EMA_50
+            df2['EMA_100'] = EMA_100
+            df2['EMA_200'] = EMA_200
+            df2.replace({np.nan: None}, inplace=True)
+            ema_200_color = ema_100_color = ema_50_color = ema_20_color = ''
+            df2.replace({np.nan: None}, inplace=True)
+            for index, row in df2.iterrows():
+                datetime_val = row['datetime']  
+                ema_20_val = row['EMA_20'] 
+                ema_50_val = row['EMA_50']
+                EMA_100_val = row['EMA_100']
+                EMA_200_val = row['EMA_200']
+                ema_200_color = ema_100_color = ema_50_color = ema_20_color = 'SELL'
+                close_value = row['close']
+                if close_value > EMA_200_val:
+                    ema_200_color = 'BUY'
+                if close_value > EMA_100_val:
+                    ema_100_color = 'BUY'
+                if close_value > ema_50_val:
+                    ema_50_color = 'BUY'
+                if close_value > ema_20_val:
+                    ema_20_color = 'BUY'
+                await db.update_thirty_min_ema(EMA_200_val, ema_200_color,EMA_100_val, ema_100_color, ema_50_val, ema_50_color, ema_20_val, ema_20_color, exchange_code, datetime_val)
+        elif process_fresh == False:
+            previous_ema_200 = df.iloc[0]['ema_200']
+            previous_ema_100 = df.iloc[0]['ema_100']
+            previous_ema_50 = df.iloc[0]['ema_50']
+            previous_ema_20 = df.iloc[0]['ema_20']
+            close_values = df2.close
+            i = 0
+            ema_200_color = ema_100_color = ema_50_color = ema_20_color = ''
+            for close_value in close_values:
+                ema_200_color = ema_100_color = ema_50_color = ema_20_color = 'SELL'
+                datetime_val = df2.iloc[i]['datetime']
+                
+                ema_200 = calculate_new_ema(close_value, previous_ema_200, 200)
+                if close_value > ema_200:
+                    ema_200_color = 'BUY'
+                
+                ema_100 = calculate_new_ema(close_value, previous_ema_100, 100)
+                if close_value > ema_100:
+                    ema_100_color = 'BUY'
+
+                ema_50 = calculate_new_ema(close_value, previous_ema_50, 50)
+                if close_value > ema_50:
+                    ema_50_color = 'BUY'
+
+                ema_20 = calculate_new_ema(close_value, previous_ema_20, 20)
+                if close_value > ema_20:
+                    ema_20_color = 'BUY'                 
+
+                previous_ema_200 = ema_200
+                previous_ema_100 = ema_100
+                previous_ema_50 = ema_50
+                previous_ema_20 = ema_20
+                print('Updating ', exchange_code)
+                await db.update_thirty_min_ema(ema_200, ema_200_color,ema_100, ema_100_color, ema_50, ema_50_color, ema_20, ema_20_color, exchange_code, datetime_val)
+                i = i + 1
+    return 1, None, count
+async def process_hour_ema(df_all_stocks):
+    count = 0
+    process_fresh = False
+    for index, row in df_all_stocks.iterrows():
+        count += 1
+        process_fresh = False
+        exchange_code = row['symbol']
+        df2 = await db.get_hour_null_ema200(exchange_code)
+        if len(df2) == 0:
+            if log == True:
+                print('1 hour No need to process ', exchange_code)
+            continue
+        else:
+            df2['close'] = df2['close'].astype(float)
+        df = await db.get_hour_last_non_null_ema200(exchange_code)
+        if len(df) == 0:
+            if log == True:
+                print('data not found - get_hour_last_non_null_ema200')
+            process_fresh = True
+        else:
+            df['ema_200'] = df['ema_200'].astype(float)
+            df['ema_100'] = df['ema_100'].astype(float)
+            df['ema_50'] = df['ema_50'].astype(float)
+            df['ema_20'] = df['ema_20'].astype(float)
+
+        if process_fresh == True:
+            print('Processing Fresh ..........................')
+            close = df2['close'].to_numpy()
+            EMA_20 = await pine_ema(close, 20)
+            EMA_50 = await pine_ema(close, 50)
+            EMA_100 = await pine_ema(close, 100)
+            EMA_200 = await pine_ema(close, 200)
+            df2['EMA_20'] = EMA_20
+            df2['EMA_50'] = EMA_50
+            df2['EMA_100'] = EMA_100
+            df2['EMA_200'] = EMA_200
+            df2.replace({np.nan: None}, inplace=True)
+            ema_200_color = ema_100_color = ema_50_color = ema_20_color = ''
+            df2.replace({np.nan: None}, inplace=True)
+            for index, row in df2.iterrows():
+                datetime_val = row['datetime']  
+                ema_20_val = row['EMA_20'] 
+                ema_50_val = row['EMA_50']
+                EMA_100_val = row['EMA_100']
+                EMA_200_val = row['EMA_200']
+                ema_200_color = ema_100_color = ema_50_color = ema_20_color = 'SELL'
+                close_value = row['close']
+                if close_value > EMA_200_val:
+                    ema_200_color = 'BUY'
+                if close_value > EMA_100_val:
+                    ema_100_color = 'BUY'
+                if close_value > ema_50_val:
+                    ema_50_color = 'BUY'
+                if close_value > ema_20_val:
+                    ema_20_color = 'BUY'
+                await db.update_hourly_ema(EMA_200_val, ema_200_color,EMA_100_val, ema_100_color, ema_50_val, ema_50_color, ema_20_val, ema_20_color, exchange_code, datetime_val)
+        elif process_fresh == False:
+            previous_ema_200 = df.iloc[0]['ema_200']
+            previous_ema_100 = df.iloc[0]['ema_100']
+            previous_ema_50 = df.iloc[0]['ema_50']
+            previous_ema_20 = df.iloc[0]['ema_20']
+            close_values = df2.close
+            i = 0
+            ema_200_color = ema_100_color = ema_50_color = ema_20_color = ''
+            for close_value in close_values:
+                ema_200_color = ema_100_color = ema_50_color = ema_20_color = 'SELL'
+                datetime_val = df2.iloc[i]['datetime']
+                
+                ema_200 = calculate_new_ema(close_value, previous_ema_200, 200)
+                if close_value > ema_200:
+                    ema_200_color = 'BUY'
+                
+                ema_100 = calculate_new_ema(close_value, previous_ema_100, 100)
+                if close_value > ema_100:
+                    ema_100_color = 'BUY'
+
+                ema_50 = calculate_new_ema(close_value, previous_ema_50, 50)
+                if close_value > ema_50:
+                    ema_50_color = 'BUY'
+
+                ema_20 = calculate_new_ema(close_value, previous_ema_20, 20)
+                if close_value > ema_20:
+                    ema_20_color = 'BUY'                 
+
+                previous_ema_200 = ema_200
+                previous_ema_100 = ema_100
+                previous_ema_50 = ema_50
+                previous_ema_20 = ema_20
+                print('Updating ', exchange_code)
+                await db.update_hourly_ema(ema_200, ema_200_color,ema_100, ema_100_color, ema_50, ema_50_color, ema_20, ema_20_color, exchange_code, datetime_val)
+                i = i + 1
+    return 1, None, count
+
+async def process_daily_ema(df_all_stocks):
+    # get_basket_symbols_to_trade for main file
+    df_all_stocks = await db.get_symbols_instruments_to_trade()
+    count = 0
+    process_fresh = False
+    for index, row in df_all_stocks.iterrows():
+        count += 1
+        process_fresh = False
+        exchange_code = row['symbol']
+        df2 = await db.get_daily_null_ema200(exchange_code)
+        if len(df2) == 0:
+            if log == True:
+                print('Daily ema No need to process ', exchange_code)
+            continue
+        else:
+            df2['close'] = df2['close'].astype(float)
+        df = await db.get_day_last_non_null_ema200(exchange_code)
+        if len(df) == 0:
+            if log == True:
+                print('data not found - get_day_last_non_null_ema200')
+            process_fresh = True
+        else:
+            df['ema_200'] = df['ema_200'].astype(float)
+            df['ema_100'] = df['ema_100'].astype(float)
+            df['ema_50'] = df['ema_50'].astype(float)
+            df['ema_20'] = df['ema_20'].astype(float)
+
+        if process_fresh == True:
+            print('Processing Fresh ..........................')
+            close = df2['close'].to_numpy()
+            EMA_20 = await pine_ema(close, 20)
+            EMA_50 = await pine_ema(close, 50)
+            EMA_100 = await pine_ema(close, 100)
+            EMA_200 = await pine_ema(close, 200)
+            df2['EMA_20'] = EMA_20
+            df2['EMA_50'] = EMA_50
+            df2['EMA_100'] = EMA_100
+            df2['EMA_200'] = EMA_200
+            df2.replace({np.nan: None}, inplace=True)
+            ema_200_color = ema_100_color = ema_50_color = ema_20_color = ''
+            df2.replace({np.nan: None}, inplace=True)
+            for index, row in df2.iterrows():
+                datetime_val = row['datetime']  
+                ema_20_val = row['EMA_20'] 
+                ema_50_val = row['EMA_50']
+                EMA_100_val = row['EMA_100']
+                EMA_200_val = row['EMA_200']
+                ema_200_color = ema_100_color = ema_50_color = ema_20_color = 'SELL'
+                close_value = row['close']
+                if close_value > EMA_200_val:
+                    ema_200_color = 'BUY'
+                if close_value > EMA_100_val:
+                    ema_100_color = 'BUY'
+                if close_value > ema_50_val:
+                    ema_50_color = 'BUY'
+                if close_value > ema_20_val:
+                    ema_20_color = 'BUY'
+                await db.update_daily_ema(EMA_200_val, ema_200_color,EMA_100_val, ema_100_color, ema_50_val, ema_50_color, ema_20_val, ema_20_color, exchange_code, datetime_val)
+        elif process_fresh == False:
+            previous_ema_200 = df.iloc[0]['ema_200']
+            previous_ema_100 = df.iloc[0]['ema_100']
+            previous_ema_50 = df.iloc[0]['ema_50']
+            previous_ema_20 = df.iloc[0]['ema_20']
+            close_values = df2.close
+            i = 0
+            ema_200_color = ema_100_color = ema_50_color = ema_20_color = ''
+            for close_value in close_values:
+                ema_200_color = ema_100_color = ema_50_color = ema_20_color = 'SELL'
+                datetime_val = df2.iloc[i]['datetime']
+                
+                ema_200 = calculate_new_ema(close_value, previous_ema_200, 200)
+                if close_value > ema_200:
+                    ema_200_color = 'BUY'
+                
+                ema_100 = calculate_new_ema(close_value, previous_ema_100, 100)
+                if close_value > ema_100:
+                    ema_100_color = 'BUY'
+
+                ema_50 = calculate_new_ema(close_value, previous_ema_50, 50)
+                if close_value > ema_50:
+                    ema_50_color = 'BUY'
+
+                ema_20 = calculate_new_ema(close_value, previous_ema_20, 20)
+                if close_value > ema_20:
+                    ema_20_color = 'BUY'                 
+
+                previous_ema_200 = ema_200
+                previous_ema_100 = ema_100
+                previous_ema_50 = ema_50
+                previous_ema_20 = ema_20
+                print('Updating ', exchange_code)
+                await db.update_daily_ema(ema_200, ema_200_color,ema_100, ema_100_color, ema_50, ema_50_color, ema_20, ema_20_color, exchange_code, datetime_val)
+                i = i + 1
+    return 1, None, count
+async def process_indicators_daily(df):
+    # await process_daily_ema(df)
+    # await process_histogram_daily(df)
+    # await process_supertrend_day(df)
+    # await process_volume_daily(df)
+    # await update_daily_dashboard(df)
+
+    return 1, None, 1
 
 async def download_ohlc_2min(df_all_stocks):
     table_name = 'two_min_ohlc'
@@ -642,6 +1022,429 @@ async def download_ohlc(df_all_stocks, interval):
     else:
         return 0, 'Unknown Error', count
 
+async def download_fivemin_ohlc(df_all_stocks):
+    global last_working_day
+    last_working_day_str = last_working_day.strftime('%d-%m-%Y')
+    count = 0
+    for index, row in df_all_stocks.iterrows():
+        exchange_code = row['symbol']
+        df_last_datetime = await db.get_last_datetime_five_min(exchange_code)
+        len_df_last_datetime = len(df_last_datetime)
+        if log == True:
+            print(f"{exchange_code=} {len_df_last_datetime=}")
+        if len(df_last_datetime) == 0:
+            if log == True:
+                print('lastdate not found for ', exchange_code)
+            # download 200 days data
+            days_prior = yesterday - timedelta(days=90)
+            startdate = days_prior
+            #sdate_iso = days_prior.isoformat()[:10] + 'T09:15:00.000Z'
+            startdate_str = days_prior.strftime('%d-%m-%Y HH:MM:00')
+        else:
+            last_date = df_last_datetime.datetime.iloc[0]
+            if log == True:
+                print(f"{exchange_code} {last_date=}")
+            startdate = last_date
+            startdate = startdate.to_pydatetime().date()
+            startdate_str = last_date.strftime('%d-%m-%Y HH:MM:00')
+        print('Timestamp class instance ', type(Timestamp))
+        if not isinstance(startdate, (date, Timestamp)):
+            print('in if not isinstance')
+            if isinstance(startdate, Timestamp):
+                startdate = startdate.to_pydatetime().date()
+            else:
+                print('in else')
+                startdate = startdate.date()
+        else:
+            print('in outer else')   
+        print(type(startdate), type(last_working_day))   
+        print(f"{startdate=} {last_working_day=}")
+        if startdate >= last_working_day:
+            last_working_day_str = last_working_day.strftime('%d-%m-%Y')
+            if log == True:
+                important_data = f"{exchange_code} startdate:{startdate_str} > last_working_day:{last_working_day_str}"
+                print(important_data)
+            await db.pre_process_logs(today_str, 'download_fivemin_ohlc', 'startdate >= last_working_dayignore', important_data, 0)
+            continue
+        if log == True:
+            important_data = f"{exchange_code=} {startdate_str=} {last_working_day_str=}"
+            await db.pre_process_logs(today_str, 'download_fivemin_ohlc', 'download using zerodha', important_data, 0)
+
+        result = 0
+        df = ""
+        try:
+            if log == True:
+                print('gethistorical_daily', exchange_code)
+            df = await get_data_zerodha('5minute', startdate, last_working_day, exchange_code)
+            result = 1
+        except Exception as e:
+            if log == True:
+                print('Error in downloading', exchange_code, e)
+            result = -1
+
+        if result == -1:
+            if log == True:
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'download using history api', 'Timeout Error', 4)
+            continue
+        if type(df) is str:
+            if log == True:
+                print(df) 
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'download using history api', 'df str', 4)
+            continue
+        if len(df) == 0:
+            if log == True:
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'Data not available', df, 4)
+            continue
+
+        for index, row in df.iterrows():
+            date_val = row['date']
+            open_val = row['open']
+            high_val = row['high']
+            low_val = row['low']
+            close_val = row['close']
+            volume_val = row['volume']
+            await db.insert_five_min_ohlc(exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val)
+            if log == True:
+                print('insert_five_min', exchange_code, date_val)
+        count += 1
+    if count > 0:
+        return 1, 'None', count
+    else:
+        return 0, 'Unknown Error', count
+
+async def download_onemin_ohlc(df_all_stocks):
+    global last_working_day
+    last_working_day_str = last_working_day.strftime('%d-%m-%Y')
+    count = 0
+    table_name = 'one_min_ohlc'
+    for index, row in df_all_stocks.iterrows():
+        exchange_code = row['symbol']
+        df_last_datetime = await db.get_ohlc_last_datetime(exchange_code, table_name)
+        len_df_last_datetime = len(df_last_datetime)
+        if log == True:
+            print(f"{exchange_code=} {len_df_last_datetime=}")
+        if len(df_last_datetime) == 0:
+            if log == True:
+                print('lastdate not found for ', exchange_code)
+            # download 200 days data
+            days_prior = yesterday - timedelta(days=90)
+            startdate = days_prior
+            #sdate_iso = days_prior.isoformat()[:10] + 'T09:15:00.000Z'
+            startdate_str = days_prior.strftime('%d-%m-%Y HH:MM:00')
+        else:
+            last_date = df_last_datetime.datetime.iloc[0]
+            if log == True:
+                print(f"{exchange_code} {last_date=}")
+            startdate = last_date
+            startdate = startdate.to_pydatetime().date()
+            startdate_str = last_date.strftime('%d-%m-%Y HH:MM:00')
+        print('Timestamp class instance ', type(Timestamp))
+        if not isinstance(startdate, (date, Timestamp)):
+            print('in if not isinstance')
+            if isinstance(startdate, Timestamp):
+                startdate = startdate.to_pydatetime().date()
+            else:
+                print('in else')
+                startdate = startdate.date()
+        else:
+            print('in outer else')   
+        print(type(startdate), type(last_working_day))   
+        print(f"{startdate=} {last_working_day=}")
+        if startdate >= last_working_day:
+            last_working_day_str = last_working_day.strftime('%d-%m-%Y')
+            if log == True:
+                important_data = f"{exchange_code} startdate:{startdate_str} > last_working_day:{last_working_day_str}"
+                print(important_data)
+            await db.pre_process_logs(today_str, 'download_fivemin_ohlc', 'startdate >= last_working_dayignore', important_data, 0)
+            continue
+        if log == True:
+            important_data = f"{exchange_code=} {startdate_str=} {last_working_day_str=}"
+            await db.pre_process_logs(today_str, 'download_fivemin_ohlc', 'download using zerodha', important_data, 0)
+
+        result = 0
+        df = ""
+        try:
+            if log == True:
+                print('gethistorical_daily', exchange_code)
+            df = await get_data_zerodha('minute', startdate, last_working_day, exchange_code)
+            result = 1
+        except Exception as e:
+            if log == True:
+                print('Error in downloading', exchange_code, e)
+            result = -1
+
+        if result == -1:
+            if log == True:
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'download using history api', 'Timeout Error', 4)
+            continue
+        if type(df) is str:
+            if log == True:
+                print(df) 
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'download using history api', 'df str', 4)
+            continue
+        if len(df) == 0:
+            if log == True:
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'Data not available', df, 4)
+            continue
+
+        for index, row in df.iterrows():
+            date_val = row['date']
+            open_val = row['open']
+            high_val = row['high']
+            low_val = row['low']
+            close_val = row['close']
+            volume_val = row['volume']
+            await db.insert_one_min_ohlc(exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val)
+            if log == True:
+                print('insert_one_min', exchange_code, date_val)
+        count += 1
+    if count > 0:
+        return 1, 'None', count
+    else:
+        return 0, 'Unknown Error', count
+async def download_thirtymin_ohlc(df_all_stocks):
+    print('download_thirtymin_ohlc')
+    global last_working_day
+    last_working_day_str = last_working_day.strftime('%d-%m-%Y')
+    count = 0
+    for index, row in df_all_stocks.iterrows():
+        exchange_code = row['symbol']
+        df_last_datetime = await db.get_last_datetime_thirty_min(exchange_code)
+        len_df_last_datetime = len(df_last_datetime)
+        if log == True:
+            print(f"{exchange_code=} {len_df_last_datetime=}")
+        if len(df_last_datetime) == 0:
+            if log == True:
+                print('lastdate not found for ', exchange_code)
+            # download 200 days data
+            days_prior = yesterday - timedelta(days=90)
+            startdate = days_prior
+            startdate_str = days_prior.strftime('%d-%m-%Y HH:MM:00')
+        else:
+            last_date = df_last_datetime.datetime.iloc[0]
+            if log == True:
+                print(f"{exchange_code} {last_date=}")
+            startdate = last_date
+            startdate = startdate.to_pydatetime().date()
+            startdate_str = last_date.strftime('%d-%m-%Y HH:MM:00')
+        if not isinstance(startdate, date):
+            startdate = startdate.date()            
+        if startdate >= last_working_day:
+            last_working_day_str = last_working_day.strftime('%d-%m-%Y')
+            if log == True:
+                important_data = f"{exchange_code} startdate:{startdate_str} > last_working_day:{last_working_day_str}"
+                print(important_data)
+                await db.pre_process_logs(today_str, 'download_thirtymin_ohlc', 'startdate >= last_working_dayignore', important_data, 0)
+            continue
+
+        if log == True:
+            important_data = f"{exchange_code=} {startdate_str=} {last_working_day=}"
+            await db.pre_process_logs(today_str, 'download_thirtymin_ohlc', 'download using zerodha', important_data, 0)
+
+        result = 0
+        df = ""
+        try:
+            if log == True:
+                print('gethistorical_daily', exchange_code)
+            df = await get_data_zerodha('30minute', startdate, last_working_day, exchange_code)
+            result = 1
+        except Exception as e:
+            if log == True:
+                print('Error in downloading', exchange_code, e)
+            result = -1
+
+        if result == -1:
+            if log == True:
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'download using history api', 'Timeout Error', 4)
+            continue
+        if type(df) is str:
+            if log == True:
+                print(df) 
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'download using history api', 'df str', 4)
+            continue
+        if len(df) == 0:
+            if log == True:
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'Data not available', 'len df 0', 4)
+            continue
+        # df = df[(df['datetime'].dt.time >= pd.to_datetime('09:15:00').time()) & 
+        #          (df['datetime'].dt.time <= pd.to_datetime('15:30:00').time())]
+        for index, row in df.iterrows():
+            date_val = row['date']
+            open_val = row['open']
+            high_val = row['high']
+            low_val = row['low']
+            close_val = row['close']
+            volume_val = row['volume']
+            await db.insert_thirty_min_ohlc(exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val)
+            if log == True:
+                print('insert_thirty_min', exchange_code, date_val)
+        count += 1
+    if count > 0:
+        return 1, 'None', count
+    else:
+        return 0, 'Unknown Error', count
+
+async def download_fifteen_min_ohlc(df_all_stocks):
+    print('download_fifteen_min_ohlc')
+    global last_working_day
+    last_working_day_str = last_working_day.strftime('%d-%m-%Y')
+    count = 0
+    for index, row in df_all_stocks.iterrows():
+        exchange_code = row['symbol']
+        df_last_datetime = await db.get_last_datetime_fifteen_min(exchange_code)
+        #df_last_datetime['datetime'] = pd.to_datetime(df_last_datetime['datetime'])
+        print(df_last_datetime)
+        len_df_last_datetime = len(df_last_datetime)
+        if log == True:
+            print(f"{exchange_code=} {len_df_last_datetime=}")
+        if len(df_last_datetime) == 0:
+            if log == True:
+                print('lastdate not found for ', exchange_code)
+            # download 200 days data
+            days_prior = yesterday - timedelta(days=15)
+            startdate = days_prior
+            #sdate_iso = days_prior.isoformat()[:10] + 'T09:15:00.000Z'
+            startdate_str = days_prior.strftime('%d-%m-%Y HH:MM:00')
+        else:
+            last_date = df_last_datetime['datetime'].iloc[0]
+            if log == True:
+                print(f"{exchange_code} {last_date=}")
+            startdate = last_date
+            startdate = startdate.to_pydatetime().date()
+            startdate_str = last_date.strftime('%d-%m-%Y HH:MM:00')
+        print(startdate, type(startdate))
+        print(last_working_day, type(last_working_day))    
+        if not isinstance(startdate, date):
+            startdate = startdate.date()
+        if startdate >= last_working_day:
+            last_working_day_str = last_working_day.strftime('%d-%m-%Y')
+            if log == True:
+                important_data = f"{exchange_code} startdate:{startdate_str} > last_working_day:{last_working_day_str}"
+                print(important_data)
+                await db.pre_process_logs(today_str, 'download_fifteen_min_ohlc', 'startdate >= last_working_dayignore', important_data, 0)
+            continue
+        #enddate_iso = last_working_day.isoformat()[:10] + 'T15:30:00.000Z'
+        if log == True:
+            important_data = f"{exchange_code=} {startdate_str=} {last_working_day=}"
+            await db.pre_process_logs(today_str, 'download_fifteen_min_ohlc', 'download using zerodha', important_data, 0)
+
+        result = 0
+        df = ""
+        try:
+            df = await get_data_zerodha('15minute', startdate, last_working_day, exchange_code)
+            result = 1
+        except Exception as e:
+            if log == True:
+                print('Error in downloading', exchange_code, e)
+            result = -1
+
+        if result == -1:
+            if log == True:
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'download using history api', 'Timeout Error', 4)
+            continue
+        if type(df) is str:
+            if log == True:
+                print(df) 
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'download_fifteen_min_ohlc', 'df str', 4)
+            continue
+        if len(df) == 0:
+            if log == True:
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'download_fifteen_min_ohlc', 'df len 0', 4)
+            continue
+       
+        for index, row in df.iterrows():
+            date_val = row['date']
+            open_val = row['open']
+            high_val = row['high']
+            low_val = row['low']
+            close_val = row['close']
+            volume_val = row['volume']
+            await db.insert_fifteen_min_ohlc(exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val)
+        count += 1
+    if count > 0:
+        return 1, 'None', count
+    else:
+        return 0, 'Unknown Error', count
+
+async def download_1hour_ohlc(df_all_stocks):
+    print('download_1hour_ohlc')
+    global last_working_day
+    last_working_day_str = last_working_day.strftime('%d-%m-%Y')
+    count = 0
+    for index, row in df_all_stocks.iterrows():
+        exchange_code = row['symbol']
+        icici_code = row['symbol']
+        df_last_datetime = await db.get_last_datetime_one_hour_ohlc(exchange_code)
+        len_df_last_datetime = len(df_last_datetime)
+        if log == True:
+            print(f"{exchange_code=} {len_df_last_datetime=}")
+        if len(df_last_datetime) == 0:
+            if log == True:
+                print('lastdate not found for ', exchange_code)
+            # download 200 days data
+            days_prior = yesterday - timedelta(days=50)
+            startdate = days_prior
+            
+            startdate_str = days_prior.strftime('%d-%m-%Y HH:MM:00')
+        else:
+            last_date = df_last_datetime.datetime.iloc[0]
+            if log == True:
+                print(f"{exchange_code} {last_date=}")
+            startdate = last_date
+            startdate = startdate.to_pydatetime().date()
+            startdate_str = last_date.strftime('%d-%m-%Y HH:MM:00')
+        if not isinstance(startdate, date):
+            startdate = startdate.date()
+        if startdate >= last_working_day:
+            last_working_day_str = last_working_day.strftime('%d-%m-%Y')
+            if log == True:
+                important_data = f"{exchange_code} startdate:{startdate_str} > last_working_day:{last_working_day_str}"
+                print(important_data)
+                await db.pre_process_logs(today_str, 'download_1hour_ohlc', 'startdate >= last_working_dayignore', important_data, 0)
+            continue
+        #enddate_iso = last_working_day.isoformat()[:10] + 'T15:30:00.000Z'
+        if log == True:
+            important_data = f"{exchange_code=} {startdate_str=} {last_working_day=}"
+            await db.pre_process_logs(today_str, 'download_1hour_ohlc', 'download using zerodha', important_data, 0)
+
+        result = 0
+        df = ""
+        try:
+            df = await get_data_zerodha('60minute', startdate, last_working_day, exchange_code)
+            result = 1
+        except Exception as e:
+            if log == True:
+                print('Error in downloading', exchange_code, e)
+            result = -1
+
+        if result == -1:
+            if log == True:
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'download using history api', 'Timeout Error', 4)
+            continue
+        if type(df) is str:
+            if log == True:
+                print(df) 
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'download using history api', 'df str', 4)
+            continue
+        if len(df) == 0:
+            if log == True:
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'Data not available', 'len(df) is 0', 4)
+            continue
+        
+        for index, row in df.iterrows():
+            date_val = row['date']
+            open_val = row['open']
+            high_val = row['high']
+            low_val = row['low']
+            close_val = row['close']
+            volume_val = row['volume']
+            await db.insert_one_hour_ohlc(exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val)
+
+        count += 1
+    if count > 0:
+        return 1, 'None', count
+    else:
+        return 0, 'Unknown Error', count
 async def update_symbols_to_monitor():
     df_basket_stocks = await db.get_active_basket_symbols()
     symbols_list = df_basket_stocks['tradingsymbol'].unique()
