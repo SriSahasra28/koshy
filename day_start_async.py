@@ -840,10 +840,8 @@ async def download_ohlc_2min(df_all_stocks):
         if len(df_last_datetime) == 0:
             if log == True:
                 print('lastdate not found for ', exchange_code)
-            # download 200 days data
             days_prior = yesterday - timedelta(days=90)
             startdate = days_prior
-            #sdate_iso = days_prior.isoformat()[:10] + 'T09:15:00.000Z'
             startdate_str = days_prior.strftime('%d-%m-%Y HH:MM:00')
         else:
             last_date = df_last_datetime.datetime.iloc[0]
@@ -874,13 +872,7 @@ async def download_ohlc_2min(df_all_stocks):
         except Exception as e:
             if log == True:
                 print('Error in getting from db', exchange_code, e)
-            result = -1
 
-        if result == -1:
-            if log == True:
-                await db.pre_process_logs(today_str, 'download_ohlc_2min', 'get data from db', ' Error', 4)
-            continue
-       
         if len(df) == 0:
             if log == True:
                 await db.pre_process_logs(today_str, 'download_ohlc_2min', 'Data not available', df, 4)
@@ -896,8 +888,9 @@ async def download_ohlc_2min(df_all_stocks):
             'low': 'min',
             'close': 'last'
         })
+        df.dropna(inplace=True)
         data = ta.candles.ha(df['open'], df['high'], df['low'], df['close'])
-
+        #print(data)
         df['ha_open'] = data['HA_open'].astype(float).round(2)
         df['ha_high'] = data['HA_high'].astype(float).round(2)
         df['ha_low'] = data['HA_low'].astype(float).round(2)
@@ -911,23 +904,20 @@ async def download_ohlc_2min(df_all_stocks):
             high_val = row['high']
             low_val = row['low']
             close_val = row['close']
-            volume_val = row['volume']  
+            volume_val = 0
             ha_open = row['ha_open']
             ha_high = row['ha_high']
             ha_low = row['ha_low']
             ha_close = row['ha_close']
             print(f"{date_val=} {ha_open=} {ha_close=}")
-            break
-        break
-    return
-    #         await db.insert_ohlc_data(table_name, exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val, ha_open, ha_high, ha_low, ha_close)
-    #         if log == True:
-    #             print('insert_' + table_name, exchange_code, date_val)
-    #     count += 1
-    # if count > 0:
-    #     return 1, 'None', count
-    # else:
-    #     return 0, 'Unknown Error', count                
+            await db.insert_ohlc_data(table_name, exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val, ha_open, ha_high, ha_low, ha_close)
+            if log == True:
+                print('insert_' + table_name, exchange_code, date_val)
+        count += 1
+    if count > 0:
+        return 1, 'None', count
+    else:
+        return 0, 'Unknown Error', count                
 async def download_ohlc(df_all_stocks, interval):
     global last_working_day
     last_working_day_str = last_working_day.strftime('%d-%m-%Y')
@@ -1504,8 +1494,8 @@ async def main():
     # await download_ohlc(df_all_stocks, '10minute')
     # await download_ohlc(df_all_stocks, '5minute')
     # await download_ohlc(df_all_stocks, '3minute')
-    await download_ohlc(df_all_stocks, 'minute')
-    #await download_ohlc_2min()
+    #await download_ohlc(df_all_stocks, 'minute')
+    await download_ohlc_2min(df_all_stocks)
     #await process_min_heikin(df_all_stocks, '15minute')
     return
     df_all_stocks = await db.get_monitor_symbols_to_trade()
