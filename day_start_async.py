@@ -878,6 +878,13 @@ async def download_ohlc(df_all_stocks, interval):
             if log == True:
                 await db.pre_process_logs(today_str, 'gethistorical_cash', 'Data not available', df, 4)
             continue
+        data = ta.candles.ha(df['open'], df['high'], df['low'], df['close'])
+
+        df['ha_open'] = data['HA_open'].astype(float).round(2)
+        df['ha_high'] = data['HA_high'].astype(float).round(2)
+        df['ha_low'] = data['HA_low'].astype(float).round(2)
+        df['ha_close'] = data['HA_close'].astype(float).round(2)
+        df.dropna(inplace=True)
 
         for index, row in df.iterrows():
             date_val = row['date']
@@ -885,8 +892,12 @@ async def download_ohlc(df_all_stocks, interval):
             high_val = row['high']
             low_val = row['low']
             close_val = row['close']
-            volume_val = row['volume']
-            await db.insert_ohlc_data(table_name, exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val)
+            volume_val = row['volume']  
+            ha_open = row['ha_open']
+            ha_high = row['ha_high']
+            ha_low = row['ha_low']
+            ha_close = row['ha_close']
+            await db.insert_ohlc_data(table_name, exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val, ha_open, ha_high, ha_low, ha_close)
             if log == True:
                 print('insert_' + table_name, exchange_code, date_val)
         count += 1
@@ -1360,8 +1371,13 @@ async def main():
     global last_working_day
     # Recreate a list of symbols for which data downloading is required
     df_all_stocks = await db.get_monitor_symbols_to_trade()
-    await process_min_heikin(df_all_stocks, '3minute')
-    await process_min_heikin(df_all_stocks, '10minute')
+    await download_ohlc(df_all_stocks, '60minute')
+    await download_ohlc(df_all_stocks, '30minute')
+    await download_ohlc(df_all_stocks, '15minute')
+    await download_ohlc(df_all_stocks, '5minute')
+    await download_ohlc(df_all_stocks, '3minute')
+    await download_ohlc(df_all_stocks, 'minute')
+    #await process_min_heikin(df_all_stocks, '15minute')
     return
     df_all_stocks = await db.get_monitor_symbols_to_trade()
     df = await db.get_pre_market_steps()

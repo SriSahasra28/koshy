@@ -211,13 +211,13 @@ class dbconnection:
                     await conn.commit()
         except Exception as e:
             raise e
-    async def insert_ohlc_data(self, table_name, symbol, datetime, open, high, low, close, volume):
+    async def insert_ohlc_data(self, table_name, symbol, datetime, open, high, low, close, volume, ha_open, ha_high, ha_low, ha_close):
         try:
             async with self.pool.acquire() as conn:
                 async with conn.cursor() as cur:
                     await cur.execute(
-                        f"INSERT IGNORE INTO {table_name} (symbol, datetime, open, high, low, close, volume) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                        (symbol, datetime, open, high, low, close, volume)
+                        f"INSERT IGNORE INTO {table_name} (symbol, datetime, open, high, low, close, volume, ha_open, ha_high, ha_low, ha_close) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                        (symbol, datetime, open, high, low, close, volume, ha_open, ha_high, ha_low, ha_close)
                     )
                     await conn.commit()
         except Exception as e:
@@ -411,7 +411,7 @@ class dbconnection:
     async def get_monitor_symbols_to_trade(self):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                query = f"SELECT symbol FROM monitor_symbols;;"
+                query = f"SELECT symbol FROM monitor_symbols;"
                 await cur.execute(query)
                 data = await cur.fetchall()
         columns = [desc[0] for desc in cur.description]
