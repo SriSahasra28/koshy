@@ -1374,6 +1374,7 @@ async def main():
     await download_ohlc(df_all_stocks, '60minute')
     await download_ohlc(df_all_stocks, '30minute')
     await download_ohlc(df_all_stocks, '15minute')
+    await download_ohlc(df_all_stocks, '10minute')
     await download_ohlc(df_all_stocks, '5minute')
     await download_ohlc(df_all_stocks, '3minute')
     await download_ohlc(df_all_stocks, 'minute')
