@@ -50,6 +50,7 @@ sdate_iso = today.isoformat()[:10] + 'T09:15:00.000Z'
 data_collection = {}
 log = True
 interval = '1minute'
+
 async def get_data_zerodha_recursive(interval, from_date, edate, symbol):
     df_instrument = await db.get_instrument_token(symbol)
     if len(df_instrument) == 0:
@@ -58,18 +59,20 @@ async def get_data_zerodha_recursive(interval, from_date, edate, symbol):
         return pd.DataFrame()
     token = int(df_instrument.instrument_token.iloc[0])
     to_date = edate
-    data = pd.DataFrame(columns=['date', 'open', 'high', 'low', 'close', 'volume'])
+    data_frames = []  # List to store DataFrames
     days = 5
-
     while from_date < edate:
         if from_date >= (edate - timedelta(days)):
-            data = data.append(zerodha.gethistoricaldata(token, from_date, edate, interval),ignore_index=True)
+            data_frames.append(zerodha.gethistoricaldata(token, from_date, edate, interval))
             break
         else:
             to_date = from_date + timedelta(days)
-            data = data.append(zerodha.gethistoricaldata(token, from_date, to_date, interval),ignore_index=True)
+            data_frames.append(zerodha.gethistoricaldata(token, from_date, to_date, interval))
             from_date = to_date
+
+    data = pd.concat(data_frames, ignore_index=True)
     return data
+
 async def get_data_zerodha(interval, sdate, edate, symbol):
     df_instrument = await db.get_instrument_token(symbol)
     if len(df_instrument) == 0:
