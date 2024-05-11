@@ -320,7 +320,17 @@ class dbconnection:
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
         return df
-            
+    
+    async def get_one_min_datetime(self, symbol, sdate, edate):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT symbol, datetime, open, high, low, close FROM one_min_ohlc where symbol = '{symbol}' and datetime between '{sdate}' and '{edate}' order by `datetime`;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df      
+          
     async def get_null_ohlc(self, symbol, tablename):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:

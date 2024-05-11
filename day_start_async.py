@@ -50,6 +50,26 @@ sdate_iso = today.isoformat()[:10] + 'T09:15:00.000Z'
 data_collection = {}
 log = True
 interval = '1minute'
+async def get_data_zerodha_recursive(interval, from_date, edate, symbol):
+    df_instrument = await db.get_instrument_token(symbol)
+    if len(df_instrument) == 0:
+        info = f"instrument token not found {symbol}"
+        print(info)
+        return pd.DataFrame()
+    token = int(df_instrument.instrument_token.iloc[0])
+    to_date = edate
+    data = pd.DataFrame(columns=['date', 'open', 'high', 'low', 'close', 'volume'])
+    days = 5
+
+    while from_date < edate:
+        if from_date >= (edate - timedelta(days)):
+            data = data.append(zerodha.gethistoricaldata(token, from_date, edate, interval),ignore_index=True)
+            break
+        else:
+            to_date = from_date + timedelta(days)
+            data = data.append(zerodha.gethistoricaldata(token, from_date, to_date, interval),ignore_index=True)
+            from_date = to_date
+    return data
 async def get_data_zerodha(interval, sdate, edate, symbol):
     df_instrument = await db.get_instrument_token(symbol)
     if len(df_instrument) == 0:
@@ -803,6 +823,108 @@ async def process_indicators_daily(df):
 
     return 1, None, 1
 
+async def download_ohlc_2min(df_all_stocks):
+    table_name = 'two_min_ohlc'
+    global last_working_day
+    last_working_day_str = last_working_day.strftime('%d-%m-%Y')
+    count = 0
+    for index, row in df_all_stocks.iterrows():
+        exchange_code = row['symbol']
+        df_last_datetime = await db.get_ohlc_last_datetime(exchange_code, table_name)
+        len_df_last_datetime = len(df_last_datetime)
+        if log == True:
+            print(f"{exchange_code=} {len_df_last_datetime=}")
+        if len(df_last_datetime) == 0:
+            if log == True:
+                print('lastdate not found for ', exchange_code)
+            # download 200 days data
+            days_prior = yesterday - timedelta(days=90)
+            startdate = days_prior
+            #sdate_iso = days_prior.isoformat()[:10] + 'T09:15:00.000Z'
+            startdate_str = days_prior.strftime('%d-%m-%Y HH:MM:00')
+        else:
+            last_date = df_last_datetime.datetime.iloc[0]
+            if log == True:
+                print(f"{exchange_code} {last_date=}")
+            startdate = last_date
+            startdate = startdate.to_pydatetime().date()
+            startdate_str = last_date.strftime('%d-%m-%Y HH:MM:00')
+
+        if startdate >= last_working_day:
+            last_working_day_str = last_working_day.strftime('%d-%m-%Y')
+            if log == True:
+                important_data = f"{interval} {exchange_code} startdate:{startdate_str} > last_working_day:{last_working_day_str}"
+                print(important_data)
+            await db.pre_process_logs(today_str, 'download_ohlc', 'startdate >= last_working_dayignore', important_data, 0)
+            continue
+        if log == True:
+            important_data = f"{interval} {exchange_code=} {startdate_str=} {last_working_day_str=}"
+            await db.pre_process_logs(today_str, 'download_ohlc', 'download using zerodha', important_data, 0)
+
+        result = 0
+        df = ""
+        try:
+            if log == True:
+                print('get_one_min_datetime', exchange_code)
+            df = await db.get_one_min_datetime(exchange_code, startdate, last_working_day)
+            result = 1
+        except Exception as e:
+            if log == True:
+                print('Error in getting from db', exchange_code, e)
+            result = -1
+
+        if result == -1:
+            if log == True:
+                await db.pre_process_logs(today_str, 'download_ohlc_2min', 'get data from db', ' Error', 4)
+            continue
+       
+        if len(df) == 0:
+            if log == True:
+                await db.pre_process_logs(today_str, 'download_ohlc_2min', 'Data not available', df, 4)
+            continue
+        
+        df['datetime'] = pd.to_datetime(df['datetime'])
+        df.set_index('datetime', inplace=True)
+
+        # Resample to 2-minute OHLC DataFrame
+        df = df.resample('2T').agg({
+            'open': 'first',
+            'high': 'max',
+            'low': 'min',
+            'close': 'last'
+        })
+        data = ta.candles.ha(df['open'], df['high'], df['low'], df['close'])
+
+        df['ha_open'] = data['HA_open'].astype(float).round(2)
+        df['ha_high'] = data['HA_high'].astype(float).round(2)
+        df['ha_low'] = data['HA_low'].astype(float).round(2)
+        df['ha_close'] = data['HA_close'].astype(float).round(2)
+        df.dropna(inplace=True)
+        df.reset_index(inplace=True)
+
+        for index, row in df.iterrows():
+            date_val = row['datetime']
+            open_val = row['open']
+            high_val = row['high']
+            low_val = row['low']
+            close_val = row['close']
+            volume_val = row['volume']  
+            ha_open = row['ha_open']
+            ha_high = row['ha_high']
+            ha_low = row['ha_low']
+            ha_close = row['ha_close']
+            print(f"{date_val=} {ha_open=} {ha_close=}")
+            break
+        break
+    return
+    #         await db.insert_ohlc_data(table_name, exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val, ha_open, ha_high, ha_low, ha_close)
+    #         if log == True:
+    #             print('insert_' + table_name, exchange_code, date_val)
+    #     count += 1
+    # if count > 0:
+    #     return 1, 'None', count
+    # else:
+    #     return 0, 'Unknown Error', count                
 async def download_ohlc(df_all_stocks, interval):
     global last_working_day
     last_working_day_str = last_working_day.strftime('%d-%m-%Y')
@@ -858,7 +980,8 @@ async def download_ohlc(df_all_stocks, interval):
         try:
             if log == True:
                 print('gethistorical_daily', exchange_code)
-            df = await get_data_zerodha(interval, startdate, last_working_day, exchange_code)
+            #df = await get_data_zerodha(interval, startdate, last_working_day, exchange_code)
+            df = await get_data_zerodha_recursive(interval, startdate, last_working_day, exchange_code)
             result = 1
         except Exception as e:
             if log == True:
@@ -885,7 +1008,7 @@ async def download_ohlc(df_all_stocks, interval):
         df['ha_low'] = data['HA_low'].astype(float).round(2)
         df['ha_close'] = data['HA_close'].astype(float).round(2)
         df.dropna(inplace=True)
-
+        print(df.tail())
         for index, row in df.iterrows():
             date_val = row['date']
             open_val = row['open']
@@ -1363,6 +1486,7 @@ async def update_symbols_to_monitor():
                 print(f"{instrument_token}, {tradingsymbol}, {expiry=}, {strike=}, {instrument_type=}")
                 await db.insert_into_monitor_symbols(instrument_token, tradingsymbol, expiry, strike, instrument_type, ltp, symbol)
     return 1, 'None', 1
+
 async def main():
     loop = asyncio.get_event_loop()
     await db.create_pool(loop)
@@ -1371,13 +1495,14 @@ async def main():
     global last_working_day
     # Recreate a list of symbols for which data downloading is required
     df_all_stocks = await db.get_monitor_symbols_to_trade()
-    await download_ohlc(df_all_stocks, '60minute')
-    await download_ohlc(df_all_stocks, '30minute')
-    await download_ohlc(df_all_stocks, '15minute')
-    await download_ohlc(df_all_stocks, '10minute')
-    await download_ohlc(df_all_stocks, '5minute')
-    await download_ohlc(df_all_stocks, '3minute')
+    # await download_ohlc(df_all_stocks, '60minute')
+    # await download_ohlc(df_all_stocks, '30minute')
+    # await download_ohlc(df_all_stocks, '15minute')
+    # await download_ohlc(df_all_stocks, '10minute')
+    # await download_ohlc(df_all_stocks, '5minute')
+    # await download_ohlc(df_all_stocks, '3minute')
     await download_ohlc(df_all_stocks, 'minute')
+    #await download_ohlc_2min()
     #await process_min_heikin(df_all_stocks, '15minute')
     return
     df_all_stocks = await db.get_monitor_symbols_to_trade()
