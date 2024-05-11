@@ -87,6 +87,15 @@ class dbconnection:
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
         return df
+    async def get_last_min_ohlc_date(self, table_name):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT `datetime` FROM {table_name} order by id desc LIMIT 1;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df
     async def get_last_thirty_min_ohlc_date(self):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:

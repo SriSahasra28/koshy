@@ -1456,7 +1456,7 @@ async def update_symbols_to_monitor():
             return df_ltp[symbol]['last_price']
         else:
             return None  
-    await db.run_query('truncate table monitor_symbols;')
+    await db.run_query('Delete FROM monitor_symbols where active = 1;')
     current_date_string = datetime.now().strftime("%Y-%m-%d")
     await db.pre_process_logs(current_date_string, 'update_symbols_to_monitor', 'symbols deleted', 'truncate table monitor_symbols', 1)
     print('df_basket_stocks', df_basket_stocks)
@@ -1486,18 +1486,8 @@ async def main():
     global df_dates, df_last_five_dates
     df= pd.DataFrame()
     global last_working_day
-    # Recreate a list of symbols for which data downloading is required
-    df_all_stocks = await db.get_monitor_symbols_to_trade()
-    # await download_ohlc(df_all_stocks, '60minute')
-    # await download_ohlc(df_all_stocks, '30minute')
-    # await download_ohlc(df_all_stocks, '15minute')
-    # await download_ohlc(df_all_stocks, '10minute')
-    # await download_ohlc(df_all_stocks, '5minute')
-    # await download_ohlc(df_all_stocks, '3minute')
-    #await download_ohlc(df_all_stocks, 'minute')
-    await download_ohlc_2min(df_all_stocks)
     #await process_min_heikin(df_all_stocks, '15minute')
-    return
+    #return
     df_all_stocks = await db.get_monitor_symbols_to_trade()
     df = await db.get_pre_market_steps()
     if datetime.now().hour > 16:
@@ -1512,101 +1502,88 @@ async def main():
         time_planned = row['time_planned']
         last_execution = row['last_execution']
         print(f"{action=}")
-        if action == 'Download Daily OHLC of Stocks':
-            result, error, count_symbol = await download_daily_ohlc_of_stocks(df_all_stocks)
-            current_date_string = datetime.now().strftime("%Y-%m-%d")
-            important_data = f"{result=} {error=} {count_symbol=} {id=}"
-            await db.pre_process_logs(current_date_string, 'download_daily_ohlc_of_stocks', 'function result', important_data, 1)
-            if result == 1:
-                last_record_date = await db.get_last_ohlc_date()
-                last_record_date_str = last_record_date.datetime.iloc[0].strftime('%Y-%m-%d')
-                await db.update_pre_market_steps(id, last_status=1, last_record_date=last_record_date_str)
-        elif action == 'process_indicators_daily':
-            result, error, count_symbol = await process_indicators_daily(df_all_stocks)
-            current_date_string = datetime.now().strftime("%Y-%m-%d")
-            important_data = f"{result=} {error=} {count_symbol=} {id=}"
-            await db.pre_process_logs(current_date_string, 'process_indicators_daily', 'function result', important_data, 1)
-            if result == 1:
-                await db.update_pre_market_steps(id, last_status=1, last_record_date=current_date_string)
-        elif action == 'download fivemin ohlc':
-            result, error, count_symbol = await download_fivemin_ohlc(df_all_stocks)
-            current_date_string = datetime.now().strftime("%Y-%m-%d")
-            important_data = f"{result=} {error=} {count_symbol=} {id=}"
-            await db.pre_process_logs(current_date_string, 'download fivemin ohlc', 'function result', important_data, 1)
-            if result == 1:
-                last_record_date = await db.get_last_fivemin_ohlc_date()
-                last_record_date_str = last_record_date.datetime.iloc[0].strftime('%Y-%m-%d')
-                await db.update_pre_market_steps(id, last_status=1, last_record_date=last_record_date_str)
-        elif action == 'process_fivemin_heikin':
-            result, error, count_symbol = await process_fivemin_heikin(df_all_stocks)
-            current_date_string = datetime.now().strftime("%Y-%m-%d")
-            important_data = f"{result=} {error=} {count_symbol=} {id=}"
-            await db.pre_process_logs(current_date_string, 'process_fivemin_heikin', 'function result', important_data, 1)
-            if result == 1:
-                await db.update_pre_market_steps(id, last_status=1, last_record_date=current_date_string)
-        elif action == 'update_symbols_to_monitor':
+
+        if action == 'update_symbols_to_monitor':
             result, error, count_symbol = await update_symbols_to_monitor()
             current_date_string = datetime.now().strftime("%Y-%m-%d")
             important_data = f"{result=} {error=} {count_symbol=} {id=}"
             await db.pre_process_logs(current_date_string, 'update_symbols_to_monitor', 'function result', important_data, 1)
             if result == 1:
                 await db.update_pre_market_steps(id, last_status=1, last_record_date=current_date_string)
+        elif action == 'download onemin ohlc':
+            result, error, count_symbol = await download_ohlc(df_all_stocks, 'minute')
+            current_date_string = datetime.now().strftime("%Y-%m-%d")
+            important_data = f"{result=} {error=} {count_symbol=} {id=}"
+            await db.pre_process_logs(current_date_string, 'download onemin ohlc', 'function result', important_data, 1)
+            if result == 1:
+                last_record_date = await db.get_last_min_ohlc_date('one_min_ohlc')
+                last_record_date_str = last_record_date.datetime.iloc[0].strftime('%Y-%m-%d')
+                await db.update_pre_market_steps(id, last_status=1, last_record_date=last_record_date_str)
+        elif action == 'download twomin ohlc':
+            result, error, count_symbol = await download_ohlc_2min(df_all_stocks)
+            current_date_string = datetime.now().strftime("%Y-%m-%d")
+            important_data = f"{result=} {error=} {count_symbol=} {id=}"
+            await db.pre_process_logs(current_date_string, 'download twomin ohlc', 'function result', important_data, 1)
+            if result == 1:
+                last_record_date = await db.get_last_min_ohlc_date('two_min_ohlc')
+                last_record_date_str = last_record_date.datetime.iloc[0].strftime('%Y-%m-%d')
+                await db.update_pre_market_steps(id, last_status=1, last_record_date=last_record_date_str)
+        elif action == 'download threemin ohlc':
+            result, error, count_symbol = await download_ohlc(df_all_stocks, '3minute')
+            current_date_string = datetime.now().strftime("%Y-%m-%d")
+            important_data = f"{result=} {error=} {count_symbol=} {id=}"
+            await db.pre_process_logs(current_date_string, 'download threemin ohlc', 'function result', important_data, 1)
+            if result == 1:
+                last_record_date = await db.get_last_min_ohlc_date('three_min_ohlc')
+                last_record_date_str = last_record_date.datetime.iloc[0].strftime('%Y-%m-%d')
+                await db.update_pre_market_steps(id, last_status=1, last_record_date=last_record_date_str)
+        elif action == 'download fivemin ohlc':
+            result, error, count_symbol = await download_ohlc(df_all_stocks, '5minute')
+            current_date_string = datetime.now().strftime("%Y-%m-%d")
+            important_data = f"{result=} {error=} {count_symbol=} {id=}"
+            await db.pre_process_logs(current_date_string, 'download fivemin ohlc', 'function result', important_data, 1)
+            if result == 1:
+                last_record_date = await db.get_last_min_ohlc_date('five_min_ohlc')
+                last_record_date_str = last_record_date.datetime.iloc[0].strftime('%Y-%m-%d')
+                await db.update_pre_market_steps(id, last_status=1, last_record_date=last_record_date_str)
+        elif action == 'download tenmin ohlc':
+            result, error, count_symbol = await download_ohlc(df_all_stocks, '10minute')
+            current_date_string = datetime.now().strftime("%Y-%m-%d")
+            important_data = f"{result=} {error=} {count_symbol=} {id=}"
+            await db.pre_process_logs(current_date_string, 'download tenmin ohlc', 'function result', important_data, 1)
+            if result == 1:
+                last_record_date = await db.get_last_min_ohlc_date('ten_min_ohlc')
+                last_record_date_str = last_record_date.datetime.iloc[0].strftime('%Y-%m-%d')
+                await db.update_pre_market_steps(id, last_status=1, last_record_date=last_record_date_str)
+        elif action == 'download fiften_min ohlc':
+            result, error, count_symbol = await download_ohlc(df_all_stocks, '15minute')
+            current_date_string = datetime.now().strftime("%Y-%m-%d")
+            important_data = f"{result=} {error=} {count_symbol=} {id=}"
+            await db.pre_process_logs(current_date_string, 'download fiften_min ohlc', 'function result', important_data, 1)
+            if result == 1:
+                last_record_date = await db.get_last_min_ohlc_date('fifteen_min_ohlc')
+                last_record_date_str = last_record_date.datetime.iloc[0].strftime('%Y-%m-%d')
+                await db.update_pre_market_steps(id, last_status=1, last_record_date=last_record_date_str)
+        elif action == 'download thirty_min ohlc':
+            result, error, count_symbol = await download_ohlc(df_all_stocks, '30minute')
+            current_date_string = datetime.now().strftime("%Y-%m-%d")
+            important_data = f"{result=} {error=} {count_symbol=} {id=}"
+            await db.pre_process_logs(current_date_string, 'download thirty_min ohlc', 'function result', important_data, 1)
+            if result == 1:
+                last_record_date = await db.get_last_min_ohlc_date('thirty_min_ohlc')
+                last_record_date_str = last_record_date.datetime.iloc[0].strftime('%Y-%m-%d')
+                await db.update_pre_market_steps(id, last_status=1, last_record_date=last_record_date_str)
+        elif action == 'download one_hour ohlc':
+            result, error, count_symbol = await download_ohlc(df_all_stocks, '60minute')
+            current_date_string = datetime.now().strftime("%Y-%m-%d")
+            important_data = f"{result=} {error=} {count_symbol=} {id=}"
+            await db.pre_process_logs(current_date_string, 'download one_hour ohlc', 'function result', important_data, 1)
+            if result == 1:
+                last_record_date = await db.get_last_min_ohlc_date('one_hour_ohlc')
+                last_record_date_str = last_record_date.datetime.iloc[0].strftime('%Y-%m-%d')
+                await db.update_pre_market_steps(id, last_status=1, last_record_date=last_record_date_str)
 
-        # elif action == 'process_indicators_five_min':
-        #     result, error, count_symbol = await process_indicators_five_min(df_all_stocks)
-        #     current_date_string = datetime.now().strftime("%Y-%m-%d")
-        #     important_data = f"{result=} {error=} {count_symbol=} {id=}"
-        #     await db.pre_process_logs(current_date_string, 'process_indicators_five_min', 'function result', important_data, 1)
-        #     if result == 1:
-        #         await db.update_pre_market_steps(id, last_status=1, last_record_date=current_date_string)
-        # elif action == 'download thirty_min ohlc':
-        #     result, error, count_symbol = await download_thirtymin_ohlc(df_all_stocks)
-        #     current_date_string = datetime.now().strftime("%Y-%m-%d")
-        #     important_data = f"{result=} {error=} {count_symbol=} {id=}"
-        #     await db.pre_process_logs(current_date_string, 'download thirtymin ohlc', 'function result', important_data, 1)
-        #     if result == 1:
-        #         last_record_date = await db.get_last_thirty_min_ohlc_date()
-        #         last_record_date_str = last_record_date.datetime.iloc[0].strftime('%Y-%m-%d')
-        #         await db.update_pre_market_steps(id, last_status=1, last_record_date=last_record_date_str)
-        # elif action == 'process_indicators_thirty_min':
-        #     result, error, count_symbol = await process_indicators_thirty_min(df_all_stocks)
-        #     current_date_string = datetime.now().strftime("%Y-%m-%d")
-        #     important_data = f"{result=} {error=} {count_symbol=} {id=}"
-        #     await db.pre_process_logs(current_date_string, 'process_indicators_five_min', 'function result', important_data, 1)
-        #     if result == 1:
-        #         await db.update_pre_market_steps(id, last_status=1, last_record_date=current_date_string)
-        # elif action == 'download fiften_min ohlc':
-        #     result, error, count_symbol = await download_fifteen_min_ohlc(df_all_stocks)
-        #     current_date_string = datetime.now().strftime("%Y-%m-%d")
-        #     important_data = f"{result=} {error=} {count_symbol=} {id=}"
-        #     await db.pre_process_logs(current_date_string, 'download thirtymin ohlc', 'function result', important_data, 1)
-        #     if result == 1:
-        #         last_record_date = await db.get_last_fifteen_min_ohlc_date()
-        #         last_record_date_str = last_record_date.datetime.iloc[0].strftime('%Y-%m-%d')
-        #         await db.update_pre_market_steps(id, last_status=1, last_record_date=last_record_date_str)
-        # elif action == 'process_indicators_fifteen_min':
-        #     result, error, count_symbol = await process_indicators_fifteen_min(df_all_stocks)
-        #     current_date_string = datetime.now().strftime("%Y-%m-%d")
-        #     important_data = f"{result=} {error=} {count_symbol=} {id=}"
-        #     await db.pre_process_logs(current_date_string, 'process_indicators_fifteen_min', 'function result', important_data, 1)
-        #     if result == 1:
-        #         await db.update_pre_market_steps(id, last_status=1, last_record_date=current_date_string)
-        # elif action == 'download one_hour ohlc':
-        #     result, error, count_symbol = await download_1hour_ohlc(df_all_stocks)
-        #     current_date_string = datetime.now().strftime("%Y-%m-%d")
-        #     important_data = f"{result=} {error=} {count_symbol=} {id=}"
-        #     await db.pre_process_logs(current_date_string, 'download_1hour_ohlc', 'function result', important_data, 1)
-        #     if result == 1:
-        #         last_record_date = await db.get_last_fifteen_min_ohlc_date()
-        #         last_record_date_str = last_record_date.datetime.iloc[0].strftime('%Y-%m-%d')
-        #         await db.update_pre_market_steps(id, last_status=1, last_record_date=last_record_date_str)
-        # elif action == 'process_indicators_one_hour':
-        #     result, error, count_symbol = await process_indicators_one_hour(df_all_stocks)
-        #     current_date_string = datetime.now().strftime("%Y-%m-%d")
-        #     important_data = f"{result=} {error=} {count_symbol=} {id=}"
-        #     await db.pre_process_logs(current_date_string, 'process_indicators_one_hour', 'function result', important_data, 1)
-        #     if result == 1:
-        #         await db.update_pre_market_steps(id, last_status=1, last_record_date=current_date_string)
+
   
     await db.close_pool()
     print('Done')
