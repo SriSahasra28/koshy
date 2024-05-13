@@ -65,14 +65,15 @@ class Start(object):
             return pd.DataFrame()
         token = int(df_instrument.instrument_token.iloc[0])
         global log
-        for retry in range(10):
+        for retry in range(2):
             data = self.zerodha.gethistoricaldata(token, sdate, edate, interval)
             if len(data) > 0:
                 if self.log == True:
                     print(f"Data Received in {retry} try")
                 break  
             else:
-                print(f'unable to get data {retry} of 10')
+                print(f'unable to get data {retry} of 2 {interval}, sdate:{sdate}, {edate}, {symbol}')
+
                 asyncio.sleep(1) 
         if len(data) < 2:
             if self.log == True:
@@ -132,6 +133,67 @@ class Start(object):
     async def process_indicators_hour(self, df):
         print('-------------------- process_indicators 1 hour -----------------')
         return 1
+
+    async def download_two_min(self, df_stocks, current_datetime):
+        print('download_two_min')
+        table_name = 'two_min_ohlc'
+        missed_df = pd.DataFrame(columns=['symbol', 'exchange_code'])
+        enddate = current_datetime
+        
+        for index, row in df_stocks.iterrows():
+            exchange_code = row['symbol']
+            print(exchange_code)
+            df_last_date = await self.db.get_ohlc_last_datetime(exchange_code, table_name)
+            if len(df_last_date) == 0:
+                days_prior = self.yesterday - timedelta(days=8)
+                startdate = days_prior
+            else:
+                last_date = df_last_date.datetime.iloc[0]
+                if last_date.date() < enddate.date():
+                    startdate = last_date + timedelta(days=1)
+                    startdate = startdate.replace(hour=9, minute=15)
+                else:
+                    startdate = last_date# + timedelta(minutes=5)
+                print(f"{last_date=} {startdate=}")
+            df = ""
+
+            #df = await self.get_data_zerodha('minute', startdate, enddate, exchange_code)
+            df = await self.db.get_one_min_datetime(exchange_code, startdate, datetime.now())
+            df['datetime'] = pd.to_datetime(df['datetime'])
+            df.set_index('datetime', inplace=True)
+
+            # Resample to 2-minute OHLC DataFrame
+            df = df.resample('2T').agg({
+                'open': 'first',
+                'high': 'max',
+                'low': 'min',
+                'close': 'last'
+            })
+            df.dropna(inplace=True)
+            if len(df) == 0:
+                continue
+            data = ta.candles.ha(df['open'], df['high'], df['low'], df['close'])
+            if len(data) > 0:
+                df['ha_open'] = data['HA_open'].astype(float).round(2)
+                df['ha_high'] = data['HA_high'].astype(float).round(2)
+                df['ha_low'] = data['HA_low'].astype(float).round(2)
+                df['ha_close'] = data['HA_close'].astype(float).round(2)
+                df.dropna(inplace=True)
+                df.reset_index(inplace=True)
+
+                for index, row in df.iterrows():
+                    date_val = row['datetime']
+                    open_val = row['open']
+                    high_val = row['high']
+                    low_val = row['low']
+                    close_val = row['close']
+                    volume_val = 0
+                    ha_open = row['ha_open']
+                    ha_high = row['ha_high']
+                    ha_low = row['ha_low']
+                    ha_close = row['ha_close']
+                    print(f"{date_val=} {ha_open=} {ha_close=}")
+                    await self.db.insert_ohlc_data(table_name, exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val, ha_open, ha_high, ha_low, ha_close)            
 
     async def download_one_min(self, df_stocks, current_datetime):
         print('download_one_min')
@@ -595,13 +657,13 @@ class Start(object):
     async def download_current_data(self):
         current_datetime = datetime.now()
         print(f"{current_datetime=}")
-        
         df_all_stocks = await self.db.get_monitor_symbols_to_trade()
         if len(df_all_stocks) == 0:
             print('No symbols to trade')
         count = 0
         missed_df = await self.download_one_min(df_all_stocks, current_datetime)
         await self.process_indicators_one_min(df_all_stocks)
+        await self.download_two_min(df_all_stocks, current_datetime)
         if current_datetime.minute % 3 == 0:
             await self.download_three_min(df_all_stocks, current_datetime)
             await self.process_indicators_three_min(df_all_stocks)

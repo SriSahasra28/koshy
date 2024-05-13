@@ -509,31 +509,33 @@ async def download_ohlc_2min(df_all_stocks):
             'close': 'last'
         })
         df.dropna(inplace=True)
+        if len(df) == 0:
+            continue
         data = ta.candles.ha(df['open'], df['high'], df['low'], df['close'])
-        #print(data)
-        df['ha_open'] = data['HA_open'].astype(float).round(2)
-        df['ha_high'] = data['HA_high'].astype(float).round(2)
-        df['ha_low'] = data['HA_low'].astype(float).round(2)
-        df['ha_close'] = data['HA_close'].astype(float).round(2)
-        df.dropna(inplace=True)
-        df.reset_index(inplace=True)
+        if len(data) > 0:
+            df['ha_open'] = data['HA_open'].astype(float).round(2)
+            df['ha_high'] = data['HA_high'].astype(float).round(2)
+            df['ha_low'] = data['HA_low'].astype(float).round(2)
+            df['ha_close'] = data['HA_close'].astype(float).round(2)
+            df.dropna(inplace=True)
+            df.reset_index(inplace=True)
 
-        for index, row in df.iterrows():
-            date_val = row['datetime']
-            open_val = row['open']
-            high_val = row['high']
-            low_val = row['low']
-            close_val = row['close']
-            volume_val = 0
-            ha_open = row['ha_open']
-            ha_high = row['ha_high']
-            ha_low = row['ha_low']
-            ha_close = row['ha_close']
-            print(f"{date_val=} {ha_open=} {ha_close=}")
-            await db.insert_ohlc_data(table_name, exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val, ha_open, ha_high, ha_low, ha_close)
-            if log == True:
-                print('insert_' + table_name, exchange_code, date_val)
-        count += 1
+            for index, row in df.iterrows():
+                date_val = row['datetime']
+                open_val = row['open']
+                high_val = row['high']
+                low_val = row['low']
+                close_val = row['close']
+                volume_val = 0
+                ha_open = row['ha_open']
+                ha_high = row['ha_high']
+                ha_low = row['ha_low']
+                ha_close = row['ha_close']
+                print(f"{date_val=} {ha_open=} {ha_close=}")
+                await db.insert_ohlc_data(table_name, exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val, ha_open, ha_high, ha_low, ha_close)
+                if log == True:
+                    print('insert_' + table_name, exchange_code, date_val)
+            count += 1
     if count > 0:
         return 1, 'None', count
     else:
