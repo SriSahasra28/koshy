@@ -110,13 +110,21 @@ class Start(object):
         print('-------------------- process_indicators_5 min -----------------')
         await self.process_one_min_heikin(df)
         return 1
-    
+    async def process_indicators_three_min(self, df):
+        print('-------------------- process_indicators_3 min -----------------')
+        await self.process_three_min_heikin(df)
+        return 1    
     async def process_indicators_five_min(self, df):
         print('-------------------- process_indicators_5 min -----------------')
         await self.process_fivemin_heikin(df)
         return 1
     async def process_indicators_fifteen_min(self, df):
         print('-------------------- process_indicators_15 min -----------------')
+        await self.process_fifteenmin_heikin(df)
+        return 1
+    async def process_indicators_ten_min(self, df):
+        print('-------------------- process_indicators_10 min -----------------')
+        await self.process_tenmin_heikin(df)
         return 1
     async def process_indicators_thirty_min(self, df):
         print('-------------------- process_indicators 30 minutes -----------------')
@@ -173,7 +181,54 @@ class Start(object):
                         await self.db.insert_one_min_ohlc(exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val)
 
         return missed_df
+    async def download_three_min(self, df_stocks, current_datetime):
+        print('download_three_min')
+        table_name = 'three_min_ohlc'
+        missed_df = pd.DataFrame(columns=['symbol', 'exchange_code'])
+        enddate = current_datetime
+        #enddate_iso = current_datetime.isoformat()[:10] + 'T15:30:00.000Z'
+        for index, row in df_stocks.iterrows():
+            exchange_code = row['symbol']
+            print(exchange_code)
+            df_last_date = await self.db.get_ohlc_last_datetime(exchange_code, table_name)
+            if len(df_last_date) == 0:
+                days_prior = self.yesterday - timedelta(days=8)
+                startdate = days_prior
+            else:
+                last_date = df_last_date.datetime.iloc[0]
+                if last_date.date() < enddate.date():
+                    startdate = last_date + timedelta(days=1)
+                    startdate = startdate.replace(hour=9, minute=15)
+                else:
+                    startdate = last_date# + timedelta(minutes=5)
+                print(f"{last_date=} {startdate=}")
+            df = ""
 
+            df = await self.get_data_zerodha('3minute', startdate, enddate, exchange_code)
+            if len(df) > 0:
+                current_datetime = datetime.now()
+                len_df = len(df)
+                last_date_recd = ''
+                if len_df > 0:
+                    last_date_recd = df.date.iloc[-1]
+                else:
+                    blank_df = pd.DataFrame({'symbol': exchange_code, 'exchange_code': exchange_code}, index=[0])
+                    missed_df = pd.concat([missed_df, blank_df], ignore_index=True)
+
+                if len_df > 0:
+                    df['date'] = pd.to_datetime(df['date'])
+                  
+                    for index, row in df.iterrows():
+                        date_val = row['date']
+                        open_val = row['open']
+                        high_val = row['high']
+                        low_val = row['low']
+                        close_val = row['close']
+                        volume_val = row['volume']
+                        print('insert_three_min_ohlc ', exchange_code, date_val)
+                        await self.db.insert_three_min_ohlc(exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val)
+
+        return missed_df
     async def download_five_min(self, df_stocks, current_datetime):
         print('download_five_min')
         missed_df = pd.DataFrame(columns=['symbol', 'exchange_code'])
@@ -221,6 +276,41 @@ class Start(object):
                         await self.db.insert_five_min_ohlc(exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val)
 
         return missed_df
+    async def download_ten_min(self, df_stocks, current_datetime):
+        print('--------------- download 10 minutes ---------------------')
+        table_name = 'ten_min_ohlc'
+        enddate = current_datetime
+        for index, row in df_stocks.iterrows():
+            exchange_code = row['symbol']
+            print(exchange_code)
+            if current_datetime.minute % 15 == 0:
+                df_last_date = await self.db.get_ohlc_last_datetime(exchange_code, table_name)
+                if len(df_last_date) == 0:
+                    days_prior = self.yesterday - timedelta(days=8)
+                    startdate = days_prior
+                else:
+                    last_date = df_last_date.datetime.iloc[0]
+                    if last_date.date() < enddate.date():
+                        startdate = last_date + timedelta(days=1)
+                        startdate = startdate.replace(hour=9, minute=15)
+                    else:
+                        startdate = last_date #+ timedelta(minutes=15)
+                        
+                    print(f"{last_date=} {startdate=}")
+
+                df = await self.get_data_zerodha('10minute', startdate, enddate, exchange_code)
+                if len(df) > 0:
+                    df['date'] = pd.to_datetime(df['date'])
+                    df.set_index('date', inplace=True)
+
+                    for index, row in df.iterrows():
+                        date_val = index
+                        open_val = row['open']
+                        high_val = row['high']
+                        low_val = row['low']
+                        close_val = row['close']
+                        volume_val = row['volume']
+                        await self.db.insert_ten_min_ohlc(exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val)
     async def download_fifteen_min(self, df_stocks, current_datetime):
         print('--------------- download 15 minutes ---------------------')
 
@@ -378,10 +468,103 @@ class Start(object):
             await self.process_heikinashi(unproc_datetime, df_new, df_old, table_name, exchange_code)
         
         return 1, None, count
+    async def process_tenmin_heikin(self, df_all_stocks):
+        print('in process_tenmin_heikin')
+        count = 0
+        table_name = 'ten_min_ohlc'
+        for index, row in df_all_stocks.iterrows():
+            count += 1
+            exchange_code = row['symbol']
+            df_new = await self.db.get_null_ohlc(exchange_code, table_name)
+            if len(df_new) == 0:
+                if self.log == True:
+                    print('NULL ohlc not found No need to process', exchange_code, table_name)
+                continue
+            else:
+                df_new['open'] = df_new['open'].astype(float)
+                df_new['high'] = df_new['high'].astype(float)
+                df_new['low'] = df_new['low'].astype(float)
+                df_new['close'] = df_new['close'].astype(float)
+            unproc_datetime = df_new.datetime.iloc[0]
+            df_old = await self.db.get_prior_rows(exchange_code, unproc_datetime, table_name)
+            if len(df_old) == 0:
+                if self.log == True:
+                    print('data not found - get_prior_thirty_rows', table_name)
+                process_fresh = True
+            else:
+                df_new['open'] = df_new['open'].astype(float)
+                df_new['high'] = df_new['high'].astype(float)
+                df_new['low'] = df_new['low'].astype(float)
+                df_new['close'] = df_new['close'].astype(float)
+            await self.process_heikinashi(unproc_datetime, df_new, df_old, table_name, exchange_code)
+        
+        return 1, None, count
     async def process_one_min_heikin(self, df_all_stocks):
         print('in process_onemin_heikin')
         count = 0
         table_name = 'one_min_ohlc'
+        for index, row in df_all_stocks.iterrows():
+            count += 1
+            exchange_code = row['symbol']
+            df_new = await self.db.get_null_ohlc(exchange_code, table_name)
+            if len(df_new) == 0:
+                if self.log == True:
+                    print('NULL ohlc not found No need to process', exchange_code, table_name)
+                continue
+            else:
+                df_new['open'] = df_new['open'].astype(float)
+                df_new['high'] = df_new['high'].astype(float)
+                df_new['low'] = df_new['low'].astype(float)
+                df_new['close'] = df_new['close'].astype(float)
+            unproc_datetime = df_new.datetime.iloc[0]
+            df_old = await self.db.get_prior_rows(exchange_code, unproc_datetime, table_name)
+            if len(df_old) == 0:
+                if self.log == True:
+                    print('data not found - get_prior_thirty_rows', table_name)
+                process_fresh = True
+            else:
+                df_new['open'] = df_new['open'].astype(float)
+                df_new['high'] = df_new['high'].astype(float)
+                df_new['low'] = df_new['low'].astype(float)
+                df_new['close'] = df_new['close'].astype(float)
+            await self.process_heikinashi(unproc_datetime, df_new, df_old, table_name, exchange_code)
+        
+        return 1, None, count
+    async def process_three_min_heikin(self, df_all_stocks):
+        print('in process_threemin_heikin')
+        count = 0
+        table_name = 'three_min_ohlc'
+        for index, row in df_all_stocks.iterrows():
+            count += 1
+            exchange_code = row['symbol']
+            df_new = await self.db.get_null_ohlc(exchange_code, table_name)
+            if len(df_new) == 0:
+                if self.log == True:
+                    print('NULL ohlc not found No need to process', exchange_code, table_name)
+                continue
+            else:
+                df_new['open'] = df_new['open'].astype(float)
+                df_new['high'] = df_new['high'].astype(float)
+                df_new['low'] = df_new['low'].astype(float)
+                df_new['close'] = df_new['close'].astype(float)
+            unproc_datetime = df_new.datetime.iloc[0]
+            df_old = await self.db.get_prior_rows(exchange_code, unproc_datetime, table_name)
+            if len(df_old) == 0:
+                if self.log == True:
+                    print('data not found - get_prior_thirty_rows', table_name)
+                process_fresh = True
+            else:
+                df_new['open'] = df_new['open'].astype(float)
+                df_new['high'] = df_new['high'].astype(float)
+                df_new['low'] = df_new['low'].astype(float)
+                df_new['close'] = df_new['close'].astype(float)
+            await self.process_heikinashi(unproc_datetime, df_new, df_old, table_name, exchange_code)
+        
+        return 1, None, count    
+    async def process_fifteenmin_heikin(self, df_all_stocks):
+        print('in process_fifteenmin_heikin')
+        count = 0
+        table_name = 'fifteen_min_ohlc'
         for index, row in df_all_stocks.iterrows():
             count += 1
             exchange_code = row['symbol']
@@ -419,6 +602,9 @@ class Start(object):
         count = 0
         missed_df = await self.download_one_min(df_all_stocks, current_datetime)
         await self.process_indicators_one_min(df_all_stocks)
+        if current_datetime.minute % 3 == 0:
+            await self.download_three_min(df_all_stocks, current_datetime)
+            await self.process_indicators_three_min(df_all_stocks)
         if current_datetime.minute % 5 == 0:
             missed_df = await self.download_five_min(df_all_stocks, current_datetime)
             if len(missed_df) > 0:
@@ -426,6 +612,10 @@ class Start(object):
                 await self.download_five_min(missed_df, current_datetime)
         
         await self.process_indicators_five_min(df_all_stocks)
+
+        if current_datetime.minute % 10 == 0:
+            await self.download_ten_min(df_all_stocks, current_datetime)
+            await self.process_indicators_fifteen_min(df_all_stocks)
         if current_datetime.minute % 15 == 0:
             await self.download_fifteen_min(df_all_stocks, current_datetime)
             await self.process_indicators_fifteen_min(df_all_stocks)

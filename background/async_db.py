@@ -242,6 +242,17 @@ class dbconnection:
                     await conn.commit()
         except Exception as e:
             raise e
+    async def insert_three_min_ohlc(self, symbol, datetime, open, high, low, close, volume):
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                    "INSERT IGNORE INTO three_min_ohlc(symbol, datetime, open, high, low, close, volume) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (symbol, datetime, open, high, low, close, volume)
+                    )
+                    await conn.commit()
+        except Exception as e:
+            raise e
     async def insert_thirty_min_ohlc(self, symbol, datetime, open, high, low, close, volume):
         try:
             async with self.pool.acquire() as conn:
@@ -265,7 +276,18 @@ class dbconnection:
                     await conn.commit()
         except Exception as e:
             raise e
-
+    async def insert_ten_min_ohlc(self, symbol, datetime, open, high, low, close, volume):
+        print(f"{symbol}, {datetime}, {open=}, {high=}, {low=}, {close=}, {volume=}")
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                    "INSERT IGNORE INTO ten_min_ohlc(symbol, datetime, open, high, low, close, volume) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (symbol, datetime, open, high, low, close, volume)
+                    )
+                    await conn.commit()
+        except Exception as e:
+            raise e
     async def insert_one_hour_ohlc(self, symbol, datetime, open, high, low, close, volume):
         print(f"{symbol}, {datetime}, {open=}, {high=}, {low=}, {close=}, {volume=}")
         try:
