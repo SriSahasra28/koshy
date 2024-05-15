@@ -663,8 +663,15 @@ async def update_symbols_to_monitor():
     for index_baket, row_basket in df_basket_stocks.iterrows():
         option_type = row_basket['option_type']
         instrument_token = row_basket['instrument_token']
-        symbol = row_basket['tradingsymbol']
-        ltp = get_last_price('NSE:' + symbol)
+        main_symbol = row_basket['tradingsymbol']
+        ltp = get_last_price('NSE:' + main_symbol)
+        symbol = main_symbol
+        if symbol == 'NIFTY 50':
+            symbol = 'NIFTY'
+        elif symbol == 'NIFTY BANK':
+            symbol = 'BANKNIFTY'
+        elif symbol == 'NIFTY FIN SERVICE':
+            symbol = 'FINNIFTY'
         print(f"{symbol} {ltp=}")
         if ltp is not None:
             df_strikes = instruments.get_nearest_ten_strikes(symbol, ltp, option_type)
@@ -676,7 +683,7 @@ async def update_symbols_to_monitor():
                 strike = row['strike']
                 instrument_type = row['instrument_type']
                 print(f"{instrument_token}, {tradingsymbol}, {expiry=}, {strike=}, {instrument_type=}")
-                await db.insert_into_monitor_symbols(instrument_token, tradingsymbol, expiry, strike, instrument_type, ltp, symbol)
+                await db.insert_into_monitor_symbols(instrument_token, tradingsymbol, expiry, strike, instrument_type, ltp, main_symbol)
     return 1, 'None', 1
 
 async def main():
@@ -685,7 +692,7 @@ async def main():
     global df_dates, df_last_five_dates
     df= pd.DataFrame()
     global last_working_day
-    #await process_min_heikin(df_all_stocks, '15minute')
+    #await update_symbols_to_monitor()
     #return
     df_all_stocks = await db.get_monitor_symbols_to_trade()
     df = await db.get_pre_market_steps()
