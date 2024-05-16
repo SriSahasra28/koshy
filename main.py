@@ -37,7 +37,7 @@ class Start(object):
         self.trade =True
         self.run_job = True
         self.initiate_time = tm(9,15,1)
-        self.exit_time = tm(22, 30)
+        self.exit_time = tm(15, 30)
         self.today = date.today()  
         self.today_str = self.today.strftime('%Y-%m-%d')
         self.yesterday = self.today - timedelta(days=1)
