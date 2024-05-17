@@ -749,8 +749,8 @@ async def main():
     #return
     df_all_stocks = await db.get_monitor_symbols_to_trade()
     #df_all_stocks = await db.get_download_symbols_to_trade()
-    await update_symbols_to_download()
-    return
+    #await update_symbols_to_download()
+    #return
     df = await db.get_pre_market_steps()
     if datetime.now().hour > 16:
         df = await db.get_pre_market_steps_ignore_date()
