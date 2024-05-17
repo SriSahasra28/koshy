@@ -715,7 +715,7 @@ async def update_symbols_to_download():
             return df_ltp[symbol]['last_price']
         else:
             return None  
-    await db.run_query('truncate table download_symbols;')
+    #await db.run_query('truncate table download_symbols;')
     current_date_string = datetime.now().strftime("%Y-%m-%d")
     await db.pre_process_logs(current_date_string, 'update_symbols_to_download', 'symbols deleted', 'truncate table download_symbols', 1)
     print('df_basket_stocks', df_all_stocks)
