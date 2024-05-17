@@ -39,7 +39,16 @@ class dbconnection:
                     (instrument_token, symbol, expiry, strike, option_type, ltp, stock_symbol)
                 )
                 await conn.commit()
-
+    async def insert_into_download_symbols(self, instrument_token, symbol, expiry, strike, option_type, ltp, stock_symbol):
+        print('in InsertIntoDownload_symbols')
+        print(f"{instrument_token=}, {symbol=}, {expiry=}, {strike=}, {option_type=}, {ltp=}, {stock_symbol=}")
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "CALL InsertIntoDownload_symbols(%s, %s, %s, %s, %s, %s, %s)",
+                    (instrument_token, symbol, expiry, strike, option_type, ltp, stock_symbol)
+                )
+                await conn.commit()
     async def get_five_min_ohlc(self, symbol, start_date):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
@@ -458,7 +467,15 @@ class dbconnection:
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
         return df  
-
+    async def get_download_symbols_to_trade(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT symbol FROM download_symbols;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df
     async def get_active_basket_symbols(self):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
@@ -468,7 +485,15 @@ class dbconnection:
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
         return df
-      
+    async def get_all_stocks_token(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT distinct i.instrument_token, i.tradingsymbol FROM instruments i inner join all_stocks b on i.tradingsymbol = b.exchange_code where exchange = 'NSE';"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df      
     async def pre_process_logs(self, date_log, module, activity, important_data, priority):
         try:
             async with self.pool.acquire() as conn:

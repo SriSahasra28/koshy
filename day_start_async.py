@@ -597,6 +597,8 @@ async def download_ohlc(df_all_stocks, interval):
                 print('gethistorical_daily', exchange_code)
             #df = await get_data_zerodha(interval, startdate, last_working_day, exchange_code)
             df = await get_data_zerodha_recursive(interval, startdate, last_working_day, exchange_code)
+            df = df[(df['date'].dt.time >= pd.to_datetime('09:15:00').time()) & 
+                (df['date'].dt.time <= pd.to_datetime('15:30:00').time())]
             result = 1
         except Exception as e:
             if log == True:
@@ -646,6 +648,7 @@ async def download_ohlc(df_all_stocks, interval):
 
 async def update_symbols_to_monitor():
     df_basket_stocks = await db.get_active_basket_symbols()
+    #df_basket_stocks = await db.get_all_stocks_token()
     symbols_list = df_basket_stocks['tradingsymbol'].unique()
     prefixed_symbols_list = ['NSE:' + symbol for symbol in symbols_list]
     df_ltp = zerodha.getLTPMulti(prefixed_symbols_list)
@@ -672,6 +675,8 @@ async def update_symbols_to_monitor():
             symbol = 'BANKNIFTY'
         elif symbol == 'NIFTY FIN SERVICE':
             symbol = 'FINNIFTY'
+        elif symbol == 'NIFTY MIDCAP 50':
+            symbol = 'MIDCPNIFTY'
         print(f"{symbol} {ltp=}")
         if ltp is not None:
             df_strikes = instruments.get_nearest_ten_strikes(symbol, ltp, option_type)
@@ -686,6 +691,54 @@ async def update_symbols_to_monitor():
                 await db.insert_into_monitor_symbols(instrument_token, tradingsymbol, expiry, strike, instrument_type, ltp, main_symbol)
     return 1, 'None', 1
 
+async def process_option(symbol, ltp, option_type, main_symbol):
+    df_strikes = instruments.get_nearest_ten_strikes(symbol, ltp, option_type)
+    df_strikes.expiry = pd.to_datetime(df_strikes.expiry)
+    for index, row in df_strikes.iterrows():
+        instrument_token = row['instrument_token']
+        tradingsymbol = row['tradingsymbol']
+        expiry = row['expiry'].strftime('%Y-%m-%d')
+        strike = row['strike']
+        instrument_type = row['instrument_type']
+        print(f"{instrument_token}, {tradingsymbol}, {expiry=}, {strike=}, {instrument_type=}")
+        await db.insert_into_download_symbols(instrument_token, tradingsymbol, expiry, strike, instrument_type, ltp, main_symbol)
+
+async def update_symbols_to_download():
+    #df_basket_stocks = await db.get_active_basket_symbols()
+    df_all_stocks = await db.get_all_stocks_token()
+    symbols_list = df_all_stocks['tradingsymbol'].unique()
+    prefixed_symbols_list = ['NSE:' + symbol for symbol in symbols_list]
+    df_ltp = zerodha.getLTPMulti(prefixed_symbols_list)
+
+    def get_last_price(symbol):
+        if symbol in df_ltp:
+            return df_ltp[symbol]['last_price']
+        else:
+            return None  
+    await db.run_query('truncate table download_symbols;')
+    current_date_string = datetime.now().strftime("%Y-%m-%d")
+    await db.pre_process_logs(current_date_string, 'update_symbols_to_download', 'symbols deleted', 'truncate table download_symbols', 1)
+    print('df_basket_stocks', df_all_stocks)
+    print('df_ltp', df_ltp)
+    for index_baket, row_basket in df_all_stocks.iterrows():
+        #instrument_token = row_basket['instrument_token']
+        main_symbol = row_basket['tradingsymbol']
+        ltp = get_last_price('NSE:' + main_symbol)
+        symbol = main_symbol
+        if symbol == 'NIFTY 50':
+            symbol = 'NIFTY'
+        elif symbol == 'NIFTY BANK':
+            symbol = 'BANKNIFTY'
+        elif symbol == 'NIFTY FIN SERVICE':
+            symbol = 'FINNIFTY'
+        elif symbol == 'NIFTY MIDCAP 50':
+            symbol = 'MIDCPNIFTY'
+        print(f"{symbol} {ltp=}")
+        if ltp is not None:
+            await process_option(symbol, ltp, 'CE', main_symbol)
+            await process_option(symbol, ltp, 'PE', main_symbol)
+    return 1, 'None', 1
+
 async def main():
     loop = asyncio.get_event_loop()
     await db.create_pool(loop)
@@ -694,7 +747,10 @@ async def main():
     global last_working_day
     #await update_symbols_to_monitor()
     #return
-    df_all_stocks = await db.get_monitor_symbols_to_trade()
+    #df_all_stocks = await db.get_monitor_symbols_to_trade()
+    df_all_stocks = await db.get_download_symbols_to_trade()
+    # await update_symbols_to_download()
+    # return
     df = await db.get_pre_market_steps()
     if datetime.now().hour > 16:
         df = await db.get_pre_market_steps_ignore_date()
