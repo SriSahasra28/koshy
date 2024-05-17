@@ -701,7 +701,7 @@ async def process_option(symbol, ltp, option_type, main_symbol):
         strike = row['strike']
         instrument_type = row['instrument_type']
         print(f"{instrument_token}, {tradingsymbol}, {expiry=}, {strike=}, {instrument_type=}")
-        await db.insert_into_download_symbols(instrument_token, tradingsymbol, expiry, strike, instrument_type, ltp, main_symbol)
+        await db.insert_into_monitor_symbols(instrument_token, tradingsymbol, expiry, strike, instrument_type, ltp, main_symbol)
 
 async def update_symbols_to_download():
     #df_basket_stocks = await db.get_active_basket_symbols()
@@ -747,10 +747,10 @@ async def main():
     global last_working_day
     #await update_symbols_to_monitor()
     #return
-    #df_all_stocks = await db.get_monitor_symbols_to_trade()
-    df_all_stocks = await db.get_download_symbols_to_trade()
-    # await update_symbols_to_download()
-    # return
+    df_all_stocks = await db.get_monitor_symbols_to_trade()
+    #df_all_stocks = await db.get_download_symbols_to_trade()
+    await update_symbols_to_download()
+    return
     df = await db.get_pre_market_steps()
     if datetime.now().hour > 16:
         df = await db.get_pre_market_steps_ignore_date()
@@ -766,7 +766,7 @@ async def main():
         print(f"{action=}")
 
         if action == 'update_symbols_to_monitor':
-            result, error, count_symbol = await update_symbols_to_monitor()
+            result, error, count_symbol = await update_symbols_to_download()
             current_date_string = datetime.now().strftime("%Y-%m-%d")
             important_data = f"{result=} {error=} {count_symbol=} {id=}"
             await db.pre_process_logs(current_date_string, 'update_symbols_to_monitor', 'function result', important_data, 1)
