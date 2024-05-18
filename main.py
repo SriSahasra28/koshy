@@ -145,7 +145,7 @@ class Start(object):
             print(exchange_code)
             df_last_date = await self.db.get_ohlc_last_datetime(exchange_code, table_name)
             if len(df_last_date) == 0:
-                days_prior = self.yesterday - timedelta(days=8)
+                days_prior = self.yesterday - timedelta(days=90)
                 startdate = days_prior
             else:
                 last_date = df_last_date.datetime.iloc[0]
@@ -206,7 +206,7 @@ class Start(object):
             print(exchange_code)
             df_last_date = await self.db.get_ohlc_last_datetime(exchange_code, table_name)
             if len(df_last_date) == 0:
-                days_prior = self.yesterday - timedelta(days=8)
+                days_prior = self.yesterday - timedelta(days=90)
                 startdate = days_prior
             else:
                 last_date = df_last_date.datetime.iloc[0]
@@ -254,7 +254,7 @@ class Start(object):
             print(exchange_code)
             df_last_date = await self.db.get_ohlc_last_datetime(exchange_code, table_name)
             if len(df_last_date) == 0:
-                days_prior = self.yesterday - timedelta(days=8)
+                days_prior = self.yesterday - timedelta(days=90)
                 startdate = days_prior
             else:
                 last_date = df_last_date.datetime.iloc[0]
@@ -301,7 +301,7 @@ class Start(object):
             print(exchange_code)
             df_last_date = await self.db.get_fivemin_ohlc_last_datetime(exchange_code)
             if len(df_last_date) == 0:
-                days_prior = self.yesterday - timedelta(days=8)
+                days_prior = self.yesterday - timedelta(days=90)
                 startdate = days_prior
             else:
                 last_date = df_last_date.datetime.iloc[0]
@@ -348,7 +348,7 @@ class Start(object):
             if current_datetime.minute % 15 == 0:
                 df_last_date = await self.db.get_ohlc_last_datetime(exchange_code, table_name)
                 if len(df_last_date) == 0:
-                    days_prior = self.yesterday - timedelta(days=8)
+                    days_prior = self.yesterday - timedelta(days=90)
                     startdate = days_prior
                 else:
                     last_date = df_last_date.datetime.iloc[0]
@@ -383,7 +383,7 @@ class Start(object):
             if current_datetime.minute % 15 == 0:
                 df_last_date = await self.db.get_last_datetime_fifteen_min(exchange_code)
                 if len(df_last_date) == 0:
-                    days_prior = self.yesterday - timedelta(days=8)
+                    days_prior = self.yesterday - timedelta(days=90)
                     startdate = days_prior
                 else:
                     last_date = df_last_date.datetime.iloc[0]
@@ -417,7 +417,7 @@ class Start(object):
             if current_datetime.minute % 30 == 0:
                 df_last_date = await self.db.get_last_datetime_thirty_min(exchange_code)
                 if len(df_last_date) == 0:
-                    days_prior = self.yesterday - timedelta(days=30)
+                    days_prior = self.yesterday - timedelta(days=90)
                     startdate = days_prior
                     sdate_iso = days_prior.isoformat()[:10] + 'T09:15:00.000Z'
                 else:
@@ -458,7 +458,7 @@ class Start(object):
             if current_datetime.minute == 15:
                 df_last_date = await self.db.get_last_datetime_one_hour_ohlc(exchange_code)
                 if len(df_last_date) == 0:
-                    days_prior = self.yesterday - timedelta(days=8)
+                    days_prior = self.yesterday - timedelta(days=90)
                     startdate = days_prior
                 else:
                     last_date = df_last_date.datetime.iloc[0]

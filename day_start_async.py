@@ -595,7 +595,7 @@ async def download_ohlc(df_all_stocks, interval):
         try:
             if log == True:
                 print('gethistorical_daily', exchange_code)
-            #df = await get_data_zerodha(interval, startdate, last_working_day, exchange_code)
+
             df = await get_data_zerodha_recursive(interval, startdate, last_working_day, exchange_code)
             df = df[(df['date'].dt.time >= pd.to_datetime('09:15:00').time()) & 
                 (df['date'].dt.time <= pd.to_datetime('15:30:00').time())]
