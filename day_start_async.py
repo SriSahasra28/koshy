@@ -448,6 +448,7 @@ async def process_fivemin_heikin(df_all_stocks):
 
 async def download_ohlc_2min(df_all_stocks):
     table_name = 'two_min_ohlc'
+    interval = '2min'
     global last_working_day
     last_working_day_str = last_working_day.strftime('%d-%m-%Y')
     count = 0
