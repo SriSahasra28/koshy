@@ -32,5 +32,5 @@ print('access token saved in database')
 l.download_instruments('NSE')
 l.download_instruments('NFO')
 
-# DBHelper.run_query('Call Resetdb()')
-# print('Database Koshy Reset')
+DBHelper.run_query('Call Resetdb()')
+print('Database Koshy Reset')
