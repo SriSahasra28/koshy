@@ -433,6 +433,8 @@ async def process_PSAR(unproc_datetime, df_new, df_old, table, exchange_code):
     df_filtered.dropna(subset=['PSAR'], inplace=True)
 
     print('len df_filtered', len(df_filtered))
+    if len(df_filtered) == 0:
+        return
     # for index, row in df_filtered.iterrows():
     #     datetime_val = row['datetime']  
     #     PSAR = row['PSAR']
@@ -448,9 +450,9 @@ async def process_PSAR(unproc_datetime, df_new, df_old, table, exchange_code):
         # PSAR_L = 'NULL' if row['L'] == None else row['L']
         # PSAR_S = 'NULL' if row['S'] == None else row['S']
         updates.append((PSAR, PSAR_L, PSAR_L, PSAR_S, PSAR_S, exchange_code, datetime_val))
-
-    print(updates[0])
-    await db.update_PSAR_batch(updates, table)
+    if len(updates) > 0:
+        print(updates[0])
+        await db.update_PSAR_batch(updates, table)
 
 async def process_min_PSAR(df_all_stocks, interval):
     print('in process_min_PSAR')
