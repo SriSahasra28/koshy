@@ -3,6 +3,7 @@ import aiomysql
 import pandas as pd
 import time
 from background.set import settings
+import numpy as np
 
 class dbconnection:
     def __init__(self):
@@ -320,7 +321,30 @@ class dbconnection:
                     await conn.commit()
         except Exception as e:
             raise e   
-                
+
+    async def update_PSAR(self, PSAR, PSAR_L, PSAR_S, symbol, datetime_val, table):
+        # print(PSAR_L, type(PSAR_L))
+        # print(PSAR_S, type(PSAR_S))
+        try:
+            PSAR_L_value = 'NULL' if PSAR_L == None else f"'{PSAR_L}'"
+            PSAR_S_value = 'NULL' if PSAR_S == None else f"'{PSAR_S}'"
+            
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    query = f"""
+                    UPDATE {table} 
+                    SET PSAR = '{PSAR}', 
+                        PSAR_L = {PSAR_L_value}, 
+                        PSAR_S = {PSAR_S_value} 
+                    WHERE symbol = '{symbol}' 
+                    AND datetime = '{datetime_val}';
+                    """
+                    print(query)
+                    await cur.execute(query)
+                    await conn.commit()
+        except Exception as e:
+            raise e
+ 
     async def update_pre_market_steps(self, id, last_status, last_record_date):
         try:
             async with self.pool.acquire() as conn:
@@ -382,11 +406,32 @@ class dbconnection:
         df = pd.DataFrame(data, columns=columns)
         return df        
 
+    async def get_psar_null_ohlc(self, symbol, tablename):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT datetime, open, high, low, close FROM {tablename} where symbol = '{symbol}' and PSAR is NULL order by `datetime`;"
+                #print(query)
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df
+
     async def get_prior_rows(self, symbol, threshold, tablename):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
                 query = f"SELECT datetime, open, high, low, close FROM {tablename} where symbol = '{symbol}' and datetime < '{threshold}' order by `datetime` desc Limit 5;"
                 print(query)
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df 
+    async def get_prior_rows_fifty(self, symbol, threshold, tablename):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT datetime, open, high, low, close FROM {tablename} where symbol = '{symbol}' and datetime < '{threshold}' order by `datetime` desc Limit 50;"
+                #print(query)
                 await cur.execute(query)
                 data = await cur.fetchall()
         columns = [desc[0] for desc in cur.description]
