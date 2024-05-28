@@ -586,3 +586,18 @@ class dbconnection:
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
         return df
+    async def update_PSAR_batch(self, updates, table):
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    query = f"""
+                    UPDATE {table} 
+                    SET PSAR = %s, 
+                        PSAR_L = CASE WHEN %s IS NULL THEN NULL ELSE %s END, 
+                        PSAR_S = CASE WHEN %s IS NULL THEN NULL ELSE %s END 
+                    WHERE symbol = %s AND datetime = %s;
+                    """
+                    await cur.executemany(query, updates)
+                    await conn.commit()
+        except Exception as e:
+            raise e

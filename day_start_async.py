@@ -433,12 +433,24 @@ async def process_PSAR(unproc_datetime, df_new, df_old, table, exchange_code):
     df_filtered.dropna(subset=['PSAR'], inplace=True)
 
     print('len df_filtered', len(df_filtered))
+    # for index, row in df_filtered.iterrows():
+    #     datetime_val = row['datetime']  
+    #     PSAR = row['PSAR']
+    #     PSAR_L = row['L']
+    #     PSAR_S = row['S']
+    #     await db.update_PSAR(PSAR, PSAR_L, PSAR_S, exchange_code, datetime_val, table)
+    updates = []
     for index, row in df_filtered.iterrows():
-        datetime_val = row['datetime']  
+        datetime_val = row['datetime']
         PSAR = row['PSAR']
         PSAR_L = row['L']
         PSAR_S = row['S']
-        await db.update_PSAR(PSAR, PSAR_L, PSAR_S, exchange_code, datetime_val, table)
+        # PSAR_L = 'NULL' if row['L'] == None else row['L']
+        # PSAR_S = 'NULL' if row['S'] == None else row['S']
+        updates.append((PSAR, PSAR_L, PSAR_L, PSAR_S, PSAR_S, exchange_code, datetime_val))
+
+    print(updates[0])
+    await db.update_PSAR_batch(updates, table)
 
 async def process_min_PSAR(df_all_stocks, interval):
     print('in process_min_PSAR')
@@ -816,8 +828,8 @@ async def main():
     #return
     df_all_stocks = await db.get_monitor_symbols_to_trade()
     #df_all_stocks = await db.get_download_symbols_to_trade()
-    # await process_min_PSAR(df_all_stocks, 'minute')
-    # return
+    #await process_min_PSAR(df_all_stocks, 'minute')
+    #return
     df = await db.get_pre_market_steps()
     if datetime.now().hour > 16:
         df = await db.get_pre_market_steps_ignore_date()
