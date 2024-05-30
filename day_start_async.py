@@ -423,8 +423,10 @@ async def process_PSAR(unproc_datetime, df_new, df_old, table, exchange_code):
     df_concatenated['PSAR_D'] = ta_psar['PSARr_0.02_0.2']
     df_concatenated['PSAR_L'] = ta_psar['PSARl_0.02_0.2']
     df_concatenated['PSAR_S'] = ta_psar['PSARs_0.02_0.2']
-    df_concatenated['L'] = np.where(pd.isna(df_concatenated['PSAR_S']), df_concatenated['low'] - (df_concatenated['low'] * 0.025), None)
-    df_concatenated['S'] = np.where(pd.isna(df_concatenated['PSAR_L']), df_concatenated['high'] + (df_concatenated['high'] * 0.025), None)
+    # df_concatenated['L'] = np.where(pd.isna(df_concatenated['PSAR_S']), df_concatenated['low'] - (df_concatenated['low'] * 0.025), None)
+    # df_concatenated['S'] = np.where(pd.isna(df_concatenated['PSAR_L']), df_concatenated['high'] + (df_concatenated['high'] * 0.025), None)
+    df_concatenated['L'] = np.where(pd.isna(df_concatenated['PSAR_S']), 1, None)
+    df_concatenated['S'] = np.where(pd.isna(df_concatenated['PSAR_L']), 1, None)
     df_concatenated['L'] = np.where(df_concatenated['PSAR_D'] == 1, df_concatenated.L, None)
     df_concatenated['S'] = np.where(df_concatenated['PSAR_D'] == 1, df_concatenated.S, None)
     df_concatenated['PSAR'] = df_concatenated['PSAR_L'].combine_first(df_concatenated['PSAR_S'])
@@ -830,8 +832,16 @@ async def main():
     #return
     df_all_stocks = await db.get_monitor_symbols_to_trade()
     #df_all_stocks = await db.get_download_symbols_to_trade()
-    #await process_min_PSAR(df_all_stocks, 'minute')
-    #return
+    
+    await process_min_PSAR(df_all_stocks, 'minute')
+    await process_min_PSAR(df_all_stocks, '2minute')
+    await process_min_PSAR(df_all_stocks, '3minute')
+    await process_min_PSAR(df_all_stocks, '5minute')
+    await process_min_PSAR(df_all_stocks, '10minute')
+    await process_min_PSAR(df_all_stocks, '15minute')
+    await process_min_PSAR(df_all_stocks, '30minute')
+    await process_min_PSAR(df_all_stocks, '60minute')
+    return
     df = await db.get_pre_market_steps()
     if datetime.now().hour > 16:
         df = await db.get_pre_market_steps_ignore_date()
