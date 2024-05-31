@@ -602,22 +602,44 @@ async def download_ohlc_2min(df_all_stocks):
             df['ha_close'] = data['HA_close'].astype(float).round(2)
             df.dropna(inplace=True)
             df.reset_index(inplace=True)
-
+            # changed code
+            BATCH_SIZE = 1000
+            batch_data = []
             for index, row in df.iterrows():
                 date_val = row['datetime']
                 open_val = row['open']
                 high_val = row['high']
                 low_val = row['low']
                 close_val = row['close']
-                volume_val = 0
+                volume_val = row['volume']  
                 ha_open = row['ha_open']
                 ha_high = row['ha_high']
                 ha_low = row['ha_low']
                 ha_close = row['ha_close']
-                print(f"{date_val=} {ha_open=} {ha_close=}")
-                await db.insert_ohlc_data(table_name, exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val, ha_open, ha_high, ha_low, ha_close)
-                if log == True:
-                    print('insert_' + table_name, exchange_code, date_val)
+
+                batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val, ha_open, ha_high, ha_low, ha_close))
+
+                if len(batch_data) >= BATCH_SIZE:
+                    await db.insert_batch_data(table_name, batch_data)
+                    batch_data = []
+
+            if batch_data:
+                await db.insert_batch_data(table_name, batch_data)
+            # for index, row in df.iterrows():
+            #     date_val = row['datetime']
+            #     open_val = row['open']
+            #     high_val = row['high']
+            #     low_val = row['low']
+            #     close_val = row['close']
+            #     volume_val = 0
+            #     ha_open = row['ha_open']
+            #     ha_high = row['ha_high']
+            #     ha_low = row['ha_low']
+            #     ha_close = row['ha_close']
+            #     print(f"{date_val=} {ha_open=} {ha_close=}")
+            #     await db.insert_ohlc_data(table_name, exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val, ha_open, ha_high, ha_low, ha_close)
+            if log == True:
+                print('insert_' + table_name, exchange_code, date_val)
             count += 1
     if count > 0:
         return 1, 'None', count
@@ -856,15 +878,15 @@ async def main():
     #return
     df_all_stocks = await db.get_monitor_symbols_to_trade()
     #df_all_stocks = await db.get_download_symbols_to_trade()
-    
-    await download_ohlc(df_all_stocks, 'minute')
-    #await download_ohlc(df_all_stocks, '2minute')
-    await download_ohlc(df_all_stocks, '3minute')
-    await download_ohlc(df_all_stocks, '5minute')
-    await download_ohlc(df_all_stocks, '10minute')
-    await download_ohlc(df_all_stocks, '15minute')
-    await download_ohlc(df_all_stocks, '30minute')
-    await download_ohlc(df_all_stocks, '60minute')
+    await download_ohlc_2min(df_all_stocks)
+    result, error, count_symbol = await process_min_PSAR(df_all_stocks, 'minute')
+    result, error, count_symbol = await process_min_PSAR(df_all_stocks, '2minute')
+    result, error, count_symbol = await process_min_PSAR(df_all_stocks, '3minute')
+    result, error, count_symbol = await process_min_PSAR(df_all_stocks, '5minute')
+    result, error, count_symbol = await process_min_PSAR(df_all_stocks, '10minute')
+    result, error, count_symbol = await process_min_PSAR(df_all_stocks, '15minute')
+    result, error, count_symbol = await process_min_PSAR(df_all_stocks, '30minute')
+    result, error, count_symbol = await process_min_PSAR(df_all_stocks, '60minute')
     return
     df = await db.get_pre_market_steps()
     if datetime.now().hour > 16:
