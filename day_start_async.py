@@ -858,7 +858,7 @@ async def main():
     #df_all_stocks = await db.get_download_symbols_to_trade()
     
     await download_ohlc(df_all_stocks, 'minute')
-    await download_ohlc(df_all_stocks, '2minute')
+    #await download_ohlc(df_all_stocks, '2minute')
     await download_ohlc(df_all_stocks, '3minute')
     await download_ohlc(df_all_stocks, '5minute')
     await download_ohlc(df_all_stocks, '10minute')
