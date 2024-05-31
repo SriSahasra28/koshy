@@ -241,6 +241,17 @@ class dbconnection:
                     await conn.commit()
         except Exception as e:
             raise e
+    async def insert_batch_data(self, table_name, batch_data):
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    await cur.executemany(
+                        f"INSERT IGNORE INTO {table_name} (symbol, datetime, open, high, low, close, volume, ha_open, ha_high, ha_low, ha_close) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                        batch_data
+                    )
+                    await conn.commit()
+        except Exception as e:
+            raise e
     async def insert_one_min_ohlc(self, symbol, datetime, open, high, low, close, volume):
         try:
             async with self.pool.acquire() as conn:
