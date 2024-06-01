@@ -462,6 +462,8 @@ async def process_min_PSAR(df_all_stocks, interval):
     table_name = 'one_min_ohlc'
     if interval == '5minute':
         table_name = 'five_min_ohlc'
+    if interval == '2minute':
+        table_name = 'two_min_ohlc'
     elif interval == '3minute':
         table_name = 'three_min_ohlc'
     elif interval == '10minute':
@@ -880,14 +882,14 @@ async def main():
     #df_all_stocks = await db.get_download_symbols_to_trade()
     # await download_ohlc_2min(df_all_stocks)
     # result, error, count_symbol = await process_min_PSAR(df_all_stocks, 'minute')
-    # result, error, count_symbol = await process_min_PSAR(df_all_stocks, '2minute')
+    result, error, count_symbol = await process_min_PSAR(df_all_stocks, '2minute')
     # result, error, count_symbol = await process_min_PSAR(df_all_stocks, '3minute')
     # result, error, count_symbol = await process_min_PSAR(df_all_stocks, '5minute')
     # result, error, count_symbol = await process_min_PSAR(df_all_stocks, '10minute')
     # result, error, count_symbol = await process_min_PSAR(df_all_stocks, '15minute')
     # result, error, count_symbol = await process_min_PSAR(df_all_stocks, '30minute')
     # result, error, count_symbol = await process_min_PSAR(df_all_stocks, '60minute')
-    # return
+    return
     df = await db.get_pre_market_steps()
     if datetime.now().hour > 16:
         df = await db.get_pre_market_steps_ignore_date()
