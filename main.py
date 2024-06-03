@@ -108,30 +108,43 @@ class Start(object):
         return data
 
     async def process_indicators_one_min(self, df):
-        print('-------------------- process_indicators_5 min -----------------')
+        print('-------------------- process_indicators_1 min -----------------')
         await self.process_one_min_heikin(df)
+        await self.process_min_PSAR(df, 'minute')
         return 1
     async def process_indicators_three_min(self, df):
         print('-------------------- process_indicators_3 min -----------------')
         await self.process_three_min_heikin(df)
+        await self.process_min_PSAR(df, '3minute')
         return 1    
+    async def process_indicators_two_min(self, df):
+        print('-------------------- process_indicators_2 min -----------------')
+        await self.process_min_PSAR(df, '2minute')
+        return 1  
     async def process_indicators_five_min(self, df):
         print('-------------------- process_indicators_5 min -----------------')
         await self.process_fivemin_heikin(df)
+        await self.process_min_PSAR(df, '5minute')
         return 1
     async def process_indicators_fifteen_min(self, df):
         print('-------------------- process_indicators_15 min -----------------')
         await self.process_fifteenmin_heikin(df)
+        await self.process_min_PSAR(df, '15minute')
         return 1
     async def process_indicators_ten_min(self, df):
         print('-------------------- process_indicators_10 min -----------------')
         await self.process_tenmin_heikin(df)
+        await self.process_min_PSAR(df, '10minute')
         return 1
     async def process_indicators_thirty_min(self, df):
         print('-------------------- process_indicators 30 minutes -----------------')
+        await self.process_thirtymin_heikin(df)
+        await self.process_min_PSAR(df, '30minute')
         return 1
     async def process_indicators_hour(self, df):
         print('-------------------- process_indicators 1 hour -----------------')
+        await self.process_hour_heikin(df)
+        await self.process_min_PSAR(df, '60minute')
         return 1
 
     async def download_two_min(self, df_stocks, current_datetime):
@@ -654,6 +667,140 @@ class Start(object):
             await self.process_heikinashi(unproc_datetime, df_new, df_old, table_name, exchange_code)
         
         return 1, None, count
+    async def process_thirtymin_heikin(self, df_all_stocks):
+        print('in process_thirtymin_heikin')
+        count = 0
+        table_name = 'thirty_min_ohlc'
+        for index, row in df_all_stocks.iterrows():
+            count += 1
+            exchange_code = row['symbol']
+            df_new = await self.db.get_null_ohlc(exchange_code, table_name)
+            if len(df_new) == 0:
+                if self.log == True:
+                    print('NULL ohlc not found No need to process', exchange_code, table_name)
+                continue
+            else:
+                df_new['open'] = df_new['open'].astype(float)
+                df_new['high'] = df_new['high'].astype(float)
+                df_new['low'] = df_new['low'].astype(float)
+                df_new['close'] = df_new['close'].astype(float)
+            unproc_datetime = df_new.datetime.iloc[0]
+            df_old = await self.db.get_prior_rows(exchange_code, unproc_datetime, table_name)
+            if len(df_old) == 0:
+                if self.log == True:
+                    print('data not found - get_prior_thirty_rows', table_name)
+                process_fresh = True
+            else:
+                df_new['open'] = df_new['open'].astype(float)
+                df_new['high'] = df_new['high'].astype(float)
+                df_new['low'] = df_new['low'].astype(float)
+                df_new['close'] = df_new['close'].astype(float)
+            await self.process_heikinashi(unproc_datetime, df_new, df_old, table_name, exchange_code)
+        
+        return 1, None, count
+    async def process_hour_heikin(self, df_all_stocks):
+        print('in process_hour_heikin')
+        count = 0
+        table_name = 'one_hour_ohlc'
+        for index, row in df_all_stocks.iterrows():
+            count += 1
+            exchange_code = row['symbol']
+            df_new = await self.db.get_null_ohlc(exchange_code, table_name)
+            if len(df_new) == 0:
+                if self.log == True:
+                    print('NULL ohlc not found No need to process', exchange_code, table_name)
+                continue
+            else:
+                df_new['open'] = df_new['open'].astype(float)
+                df_new['high'] = df_new['high'].astype(float)
+                df_new['low'] = df_new['low'].astype(float)
+                df_new['close'] = df_new['close'].astype(float)
+            unproc_datetime = df_new.datetime.iloc[0]
+            df_old = await self.db.get_prior_rows(exchange_code, unproc_datetime, table_name)
+            if len(df_old) == 0:
+                if self.log == True:
+                    print('data not found - get_prior_thirty_rows', table_name)
+                process_fresh = True
+            else:
+                df_new['open'] = df_new['open'].astype(float)
+                df_new['high'] = df_new['high'].astype(float)
+                df_new['low'] = df_new['low'].astype(float)
+                df_new['close'] = df_new['close'].astype(float)
+            await self.process_heikinashi(unproc_datetime, df_new, df_old, table_name, exchange_code)
+        
+        return 1, None, count
+    async def process_PSAR(self, unproc_datetime, df_new, df_old, table, exchange_code):
+        df_old.sort_values(by='datetime', inplace=True)
+        df_concatenated = pd.concat([df_old, df_new], ignore_index=True)
+        # get from db af=0.02, max_af=0.2
+        ta_psar = ta.psar(high=df_concatenated['high'], low=df_concatenated['low'], close=df_concatenated['close'], af0=0.02, af=0.02, max_af=0.2)
+
+        df_concatenated['PSAR_D'] = ta_psar['PSARr_0.02_0.2']
+        df_concatenated['PSAR_L'] = ta_psar['PSARl_0.02_0.2']
+        df_concatenated['PSAR_S'] = ta_psar['PSARs_0.02_0.2']
+        df_concatenated['L'] = np.where(pd.isna(df_concatenated['PSAR_S']), 1, None)
+        df_concatenated['S'] = np.where(pd.isna(df_concatenated['PSAR_L']), 1, None)
+        df_concatenated['L'] = np.where(df_concatenated['PSAR_D'] == 1, df_concatenated.L, None)
+        df_concatenated['S'] = np.where(df_concatenated['PSAR_D'] == 1, df_concatenated.S, None)
+        df_concatenated['PSAR'] = df_concatenated['PSAR_L'].combine_first(df_concatenated['PSAR_S'])
+        
+        df_filtered = df_concatenated.loc[df_concatenated['datetime'] >= unproc_datetime]
+        df_filtered.dropna(subset=['PSAR'], inplace=True)
+
+        print('len df_filtered', len(df_filtered))
+        if len(df_filtered) == 0:
+            return
+        
+        updates = []
+        for index, row in df_filtered.iterrows():
+            datetime_val = row['datetime']
+            PSAR = row['PSAR']
+            PSAR_L = row['L']
+            PSAR_S = row['S']
+            updates.append((PSAR, PSAR_L, PSAR_L, PSAR_S, PSAR_S, exchange_code, datetime_val))
+        if len(updates) > 0:
+            print(updates[0])
+            await self.db.update_PSAR_batch(updates, table)    
+    async def process_min_PSAR(self, df_all_stocks, interval):
+        print('in process_min_PSAR')
+        count = 0
+        table_name = 'one_min_ohlc'
+        if interval == '5minute':
+            table_name = 'five_min_ohlc'
+        if interval == '2minute':
+            table_name = 'two_min_ohlc'
+        elif interval == '3minute':
+            table_name = 'three_min_ohlc'
+        elif interval == '10minute':
+            table_name = 'ten_min_ohlc'
+        elif interval == '15minute':
+            table_name = 'fifteen_min_ohlc'
+        elif interval == '30minute':
+            table_name = 'thirty_min_ohlc'
+        elif interval == '60minute':
+            table_name = 'one_hour_ohlc'
+        for index, row in df_all_stocks.iterrows():
+            count += 1
+            exchange_code = row['symbol']
+            df_new = await self.db.get_psar_null_ohlc(exchange_code, table_name)
+            if len(df_new) == 0:
+                if log == True:
+                    print('PSAR NULL ohlc not found skipping', exchange_code, table_name)
+                continue
+            else:
+                df_new[['open', 'high', 'low', 'close']] = df_new[['open', 'high', 'low', 'close']].astype(float)
+
+            unproc_datetime = df_new.datetime.iloc[0]
+            df_old = await self.db.get_prior_rows_fifty(exchange_code, unproc_datetime, table_name)
+            if len(df_old) == 0:
+                if log == True:
+                    print('data not found - get_prior_rows_fifty', table_name)
+                process_fresh = True
+            else:
+                df_old[['open', 'high', 'low', 'close']] = df_old[['open', 'high', 'low', 'close']].astype(float)
+            await self.process_PSAR(unproc_datetime, df_new, df_old, table_name, exchange_code)
+
+        return 1, None, count    
     async def download_current_data(self):
         current_datetime = datetime.now()
         print(f"{current_datetime=}")
@@ -664,6 +811,7 @@ class Start(object):
         missed_df = await self.download_one_min(df_all_stocks, current_datetime)
         await self.process_indicators_one_min(df_all_stocks)
         await self.download_two_min(df_all_stocks, current_datetime)
+        await self.process_indicators_two_min(df_all_stocks)
         if current_datetime.minute % 3 == 0:
             await self.download_three_min(df_all_stocks, current_datetime)
             await self.process_indicators_three_min(df_all_stocks)
