@@ -784,7 +784,7 @@ class Start(object):
             exchange_code = row['symbol']
             df_new = await self.db.get_psar_null_ohlc(exchange_code, table_name)
             if len(df_new) == 0:
-                if log == True:
+                if self.log == True:
                     print('PSAR NULL ohlc not found skipping', exchange_code, table_name)
                 continue
             else:
@@ -793,7 +793,7 @@ class Start(object):
             unproc_datetime = df_new.datetime.iloc[0]
             df_old = await self.db.get_prior_rows_fifty(exchange_code, unproc_datetime, table_name)
             if len(df_old) == 0:
-                if log == True:
+                if self.log == True:
                     print('data not found - get_prior_rows_fifty', table_name)
                 process_fresh = True
             else:
