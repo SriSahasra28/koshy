@@ -310,8 +310,10 @@ class Start(object):
                 print(f"{last_date=} {startdate=}")
             df = ""
 
-            df = await self.get_data_zerodha('3minute', startdate, enddate, exchange_code)
+            df = await self.get_data_zerodha_recursive('3minute', startdate, enddate, exchange_code)
             if len(df) > 0:
+                df = df[(df['date'].dt.time >= pd.to_datetime('09:15:00').time()) & 
+                    (df['date'].dt.time <= pd.to_datetime('15:30:00').time())]
                 current_datetime = datetime.now()
                 len_df = len(df)
                 last_date_recd = ''
@@ -358,8 +360,10 @@ class Start(object):
                 print(f"{last_date=} {startdate=}")
             df = ""
 
-            df = await self.get_data_zerodha('5minute', startdate, enddate, exchange_code)
+            df = await self.get_data_zerodha_recursive('5minute', startdate, enddate, exchange_code)
             if len(df) > 0:
+                df = df[(df['date'].dt.time >= pd.to_datetime('09:15:00').time()) & 
+                    (df['date'].dt.time <= pd.to_datetime('15:30:00').time())]
                 current_datetime = datetime.now()
                 len_df = len(df)
                 last_date_recd = ''
@@ -404,8 +408,10 @@ class Start(object):
                         
                     print(f"{last_date=} {startdate=}")
 
-                df = await self.get_data_zerodha('10minute', startdate, enddate, exchange_code)
+                df = await self.get_data_zerodha_recursive('10minute', startdate, enddate, exchange_code)
                 if len(df) > 0:
+                    df = df[(df['date'].dt.time >= pd.to_datetime('09:15:00').time()) & 
+                        (df['date'].dt.time <= pd.to_datetime('15:30:00').time())]
                     df['date'] = pd.to_datetime(df['date'])
                     df.set_index('date', inplace=True)
 
@@ -439,8 +445,10 @@ class Start(object):
                         
                     print(f"{last_date=} {startdate=}")
 
-                df = await self.get_data_zerodha('15minute', startdate, enddate, exchange_code)
+                df = await self.get_data_zerodha_recursive('15minute', startdate, enddate, exchange_code)
                 if len(df) > 0:
+                    df = df[(df['date'].dt.time >= pd.to_datetime('09:15:00').time()) & 
+                        (df['date'].dt.time <= pd.to_datetime('15:30:00').time())]
                     df['date'] = pd.to_datetime(df['date'])
                     df.set_index('date', inplace=True)
 
@@ -476,8 +484,10 @@ class Start(object):
                 df = ""
                 try:
                     print('gethistorical_daily', exchange_code)
-                    df = await self.get_data_zerodha('30minute', startdate, current_datetime, exchange_code)
+                    df = await self.get_data_zerodha_recursive('30minute', startdate, current_datetime, exchange_code)
                     if len(df) > 0:
+                        df = df[(df['date'].dt.time >= pd.to_datetime('09:15:00').time()) & 
+                            (df['date'].dt.time <= pd.to_datetime('15:30:00').time())]
                         df = df[(df['date'].dt.time >= pd.to_datetime('09:15:00').time()) & 
                         (df['date'].dt.time <= pd.to_datetime('15:30:00').time())]
                         print(f"First new date: {df['date'].iloc[0]}")
@@ -513,8 +523,10 @@ class Start(object):
                         startdate = last_date #+ timedelta(minutes=15)
                     print(f"{last_date=} {startdate=}")
 
-                df = await self.get_data_zerodha('60minute', startdate, current_datetime, exchange_code)
+                df = await self.get_data_zerodha_recursive('60minute', startdate, current_datetime, exchange_code)
                 if len(df) > 0:
+                    df = df[(df['date'].dt.time >= pd.to_datetime('09:15:00').time()) & 
+                        (df['date'].dt.time <= pd.to_datetime('15:30:00').time())]
                     df['date'] = pd.to_datetime(df['date'])
                     df.set_index('date', inplace=True)
 
@@ -868,7 +880,7 @@ class Start(object):
 
         if current_datetime.minute % 10 == 0:
             await self.download_ten_min(df_all_stocks, current_datetime)
-            await self.process_indicators_fifteen_min(df_all_stocks)
+            await self.process_indicators_ten_min(df_all_stocks)
         if current_datetime.minute % 15 == 0:
             await self.download_fifteen_min(df_all_stocks, current_datetime)
             await self.process_indicators_fifteen_min(df_all_stocks)
@@ -913,6 +925,15 @@ class Start(object):
     async def final_download(self):
         current_datetime = datetime.now()
         df_all_stocks = await self.db.get_basket_symbols_to_trade()
+        await self.download_two_min(df_all_stocks, current_datetime)
+        await self.process_indicators_two_min(df_all_stocks)
+        await self.download_three_min(df_all_stocks, current_datetime)
+        await self.process_indicators_three_min(df_all_stocks)
+        await self.download_five_min(df_all_stocks, current_datetime)
+        await self.process_indicators_five_min(df_all_stocks)
+        await self.download_ten_min(df_all_stocks, current_datetime)
+        await self.process_indicators_ten_min(df_all_stocks)
+
         await self.download_fifteen_min(df_all_stocks, current_datetime)
         await self.process_indicators_fifteen_min(df_all_stocks)
         await self.download_thirty_min(df_all_stocks, current_datetime)
@@ -925,7 +946,7 @@ async def main():
     await start.start_pool()
     df_all_stocks = await start.db.get_monitor_symbols_to_trade()
     #await start.download_one_min(df_all_stocks, current_datetime)
-    await start.process_min_PSAR(df_all_stocks, 'minute')
+    await start.final_download()
     #await start.download_current_data()
     await asyncio.sleep(1)
     await start.close_pool()
