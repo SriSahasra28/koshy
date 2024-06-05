@@ -924,7 +924,7 @@ class Start(object):
                     await self.db.insert_into_monitor_symbols(instrument_token, tradingsymbol, expiry, strike, instrument_type, ltp, symbol)
     async def final_download(self):
         current_datetime = datetime.now()
-        df_all_stocks = await self.db.get_basket_symbols_to_trade()
+        df_all_stocks = await self.db.get_monitor_symbols_to_trade()
         await self.download_two_min(df_all_stocks, current_datetime)
         await self.process_indicators_two_min(df_all_stocks)
         await self.download_three_min(df_all_stocks, current_datetime)
