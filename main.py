@@ -56,6 +56,35 @@ class Start(object):
     
     async def close_pool(self):
         await self.db.close_pool()
+    async def get_data_zerodha_recursive(self, interval, from_date, edate, symbol):
+        if isinstance(from_date, datetime):
+            from_date = from_date.date()
+        if isinstance(edate, datetime):
+            edate = edate.date()
+        df_instrument = await self.db.get_instrument_token(symbol)
+        if len(df_instrument) == 0:
+            info = f"instrument token not found {symbol}"
+            print(info)
+            return pd.DataFrame()
+        token = int(df_instrument.instrument_token.iloc[0])
+        to_date = edate
+        data_frames = []  # List to store DataFrames
+        days = 5
+        while from_date < edate:
+            if from_date >= (edate - timedelta(days)):
+                data_frames.append(self.zerodha.gethistoricaldata(token, from_date, edate, interval))
+                break
+            else:
+                to_date = from_date + timedelta(days)
+                data_frames.append(self.zerodha.gethistoricaldata(token, from_date, to_date, interval))
+                from_date = to_date
+        if data_frames:
+            data = pd.concat(data_frames, ignore_index=True)
+            return data
+        else:
+            print("No data frames to concatenate")
+            data = pd.DataFrame() 
+            return data 
 
     async def get_data_zerodha(self, interval, sdate, edate, symbol):
         df_instrument = await self.db.get_instrument_token(symbol)
@@ -230,9 +259,11 @@ class Start(object):
                     startdate = last_date# + timedelta(minutes=5)
                 print(f"{last_date=} {startdate=}")
             df = ""
-
-            df = await self.get_data_zerodha('minute', startdate, enddate, exchange_code)
+            
+            df = await self.get_data_zerodha_recursive('minute', startdate, enddate, exchange_code)
             if len(df) > 0:
+                df = df[(df['date'].dt.time >= pd.to_datetime('09:15:00').time()) & 
+                    (df['date'].dt.time <= pd.to_datetime('15:30:00').time())]
                 current_datetime = datetime.now()
                 len_df = len(df)
                 last_date_recd = ''
@@ -730,8 +761,10 @@ class Start(object):
         
         return 1, None, count
     async def process_PSAR(self, unproc_datetime, df_new, df_old, table, exchange_code):
+        print('in process_PSAR')
         df_old.sort_values(by='datetime', inplace=True)
         df_concatenated = pd.concat([df_old, df_new], ignore_index=True)
+        print('df_concatenated', df_concatenated)
         # get from db af=0.02, max_af=0.2
         ta_psar = ta.psar(high=df_concatenated['high'], low=df_concatenated['low'], close=df_concatenated['close'], af0=0.02, af=0.02, max_af=0.2)
 
@@ -757,10 +790,13 @@ class Start(object):
             PSAR = row['PSAR']
             PSAR_L = row['L']
             PSAR_S = row['S']
+            if (PSAR_L != None) or (PSAR_S != None):
+                print(PSAR, PSAR_L, PSAR_S, datetime_val)
             updates.append((PSAR, PSAR_L, PSAR_L, PSAR_S, PSAR_S, exchange_code, datetime_val))
         if len(updates) > 0:
             print(updates[0])
-            await self.db.update_PSAR_batch(updates, table)    
+            await self.db.update_PSAR_batch(updates, table)
+            print('after update_PSAR_batch')    
     async def process_min_PSAR(self, df_all_stocks, interval):
         print('in process_min_PSAR')
         count = 0
@@ -782,24 +818,31 @@ class Start(object):
         for index, row in df_all_stocks.iterrows():
             count += 1
             exchange_code = row['symbol']
+            print(exchange_code);
             df_new = await self.db.get_psar_null_ohlc(exchange_code, table_name)
+
+            print('len(dfnew)', len(df_new))
             if len(df_new) == 0:
                 if self.log == True:
                     print('PSAR NULL ohlc not found skipping', exchange_code, table_name)
                 continue
+            elif len(df_new) == 1:
+                df_new[['open', 'high', 'low', 'close']] = df_new[['open', 'high', 'low', 'close']].astype(float)                
             else:
+                df_new = df_new[1:]             # Remove Outliars
                 df_new[['open', 'high', 'low', 'close']] = df_new[['open', 'high', 'low', 'close']].astype(float)
-
+            #print(df_new)
             unproc_datetime = df_new.datetime.iloc[0]
+            print(f"{unproc_datetime=}")
             df_old = await self.db.get_prior_rows_fifty(exchange_code, unproc_datetime, table_name)
             if len(df_old) == 0:
                 if self.log == True:
-                    print('data not found - get_prior_rows_fifty', table_name)
+                    print('data not found - get_prior_rows_fifty', table_name, unproc_datetime)
                 process_fresh = True
             else:
                 df_old[['open', 'high', 'low', 'close']] = df_old[['open', 'high', 'low', 'close']].astype(float)
+                print('len(df_old):', len(df_old))
             await self.process_PSAR(unproc_datetime, df_new, df_old, table_name, exchange_code)
-
         return 1, None, count    
     async def download_current_data(self):
         current_datetime = datetime.now()
@@ -879,11 +922,14 @@ class Start(object):
 async def main():
     start = Start()
     current_datetime = datetime.now()
-    # await start.start_pool()
-    # await start.download_current_data()
-    # await asyncio.sleep(1)
-    # await start.close_pool()
-    # return
+    await start.start_pool()
+    df_all_stocks = await start.db.get_monitor_symbols_to_trade()
+    #await start.download_one_min(df_all_stocks, current_datetime)
+    await start.process_min_PSAR(df_all_stocks, 'minute')
+    #await start.download_current_data()
+    await asyncio.sleep(1)
+    await start.close_pool()
+    return
     while True:
         CurrentDateTime = datetime.now()
         current_time = CurrentDateTime.time()

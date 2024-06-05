@@ -517,7 +517,7 @@ class dbconnection:
     async def get_monitor_symbols_to_trade(self):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                query = f"SELECT symbol FROM monitor_symbols;"
+                query = f"SELECT symbol FROM monitor_symbols where active = 1;"
                 await cur.execute(query)
                 data = await cur.fetchall()
         columns = [desc[0] for desc in cur.description]
