@@ -16,11 +16,13 @@ db = dbconnection()
 instruments = instruments_class()
 import numpy as np
 import pandas_ta as ta
-
 import math
-global last_working_day, today, yesterday, holidays, holidays_datetime
-today = date.today()
 
+global last_working_day, today, yesterday, holidays, holidays_datetime, lrc_period, lrc_stdev
+lrc_period = 100
+lrc_stdev = 2
+
+today = date.today()
 zerodha = zeroda('live', datetime.today())
 today_str = today.strftime('%Y-%m-%d')
 yesterday = today - timedelta(days=1)
@@ -56,7 +58,7 @@ async def get_data_zerodha_recursive(interval, from_date, edate, symbol):
         from_date = datetime.combine(from_date, tm(9, 15, 0))
     if not isinstance(edate, datetime):
         edate = datetime.combine(edate, tm(15, 30, 0))
-        
+
     df_instrument = await db.get_instrument_token(symbol)
     if len(df_instrument) == 0:
         info = f"instrument token not found {symbol}"
@@ -883,6 +885,73 @@ async def update_symbols_to_download():
             await process_option(symbol, ltp, 'PE', main_symbol)
     return 1, 'None', 1
 
+async def linear_regression_channel(close, period, std_multiplier):
+    close = close[-period:]
+    X = np.arange(len(close))
+    # Linear regression using np.polyfit
+    slope, intercept = np.polyfit(X, close, 1)
+    # Linear Regression Line (LRL)
+    LRL = intercept + slope * X
+    # Residuals (differences between actual values and LRL)
+    residuals = close - LRL
+    # Standard deviation of residuals
+    std_dev = np.std(residuals)
+    # Upper and Lower Channel Lines
+    UCL = LRL + std_multiplier * std_dev
+    LCL = LRL - std_multiplier * std_dev
+    
+    return LRL, UCL, LCL
+
+async def process_LRC(df, table_name, exchange_code, lrc_period, lrc_stdev):
+    close = df['close'].to_numpy()
+    LRL, UCL, LCL = await linear_regression_channel(close, lrc_period, lrc_stdev)
+    df['LRL'] = LRL
+    df['UCL'] = UCL
+    df['LCL'] = LCL
+    updates = []
+    for index, row in df.iterrows():
+        datetime_val = row['datetime']
+        LRL = row['LRL']
+        UCL = row['UCL']
+        LCL = row['LCL']
+        updates.append((LRL, UCL, LCL, exchange_code, datetime_val))
+    if len(updates) > 0:
+        print(updates[0])
+        await db.update_LRC_batch(updates, table_name)
+
+async def process_min_LRC(df_all_stocks, interval):
+    global lrc_period, lrc_stdev
+    print('in process_min_LRC')
+    count = 0
+    table_name = 'one_min_ohlc'
+    if interval == '5minute':
+        table_name = 'five_min_ohlc'
+    if interval == '2minute':
+        table_name = 'two_min_ohlc'
+    elif interval == '3minute':
+        table_name = 'three_min_ohlc'
+    elif interval == '10minute':
+        table_name = 'ten_min_ohlc'
+    elif interval == '15minute':
+        table_name = 'fifteen_min_ohlc'
+    elif interval == '30minute':
+        table_name = 'thirty_min_ohlc'
+    elif interval == '60minute':
+        table_name = 'one_hour_ohlc'
+    for index, row in df_all_stocks.iterrows():
+        count += 1
+        exchange_code = row['symbol']
+        df = await db.get_last_n_close(exchange_code, table_name, lrc_period)
+        if len(df) < lrc_period - 1:
+            if log == True:
+                print('LRC get_last_n_close not enough data found skipping', exchange_code, table_name)
+            continue
+        else:
+            df[['close']] = df[['close']].astype(float)
+
+        await process_LRC(df, table_name, exchange_code, lrc_period, lrc_stdev)
+
+    return 1, None, count
 async def main():
     loop = asyncio.get_event_loop()
     await db.create_pool(loop)
@@ -893,16 +962,16 @@ async def main():
     #return
     df_all_stocks = await db.get_monitor_symbols_to_trade()
     #df_all_stocks = await db.get_download_symbols_to_trade()
-    # await download_ohlc_2min(df_all_stocks)
-    # result, error, count_symbol = await process_min_PSAR(df_all_stocks, 'minute')
-    # result, error, count_symbol = await process_min_PSAR(df_all_stocks, '2minute')
-    # result, error, count_symbol = await process_min_PSAR(df_all_stocks, '3minute')
-    # result, error, count_symbol = await process_min_PSAR(df_all_stocks, '5minute')
-    # result, error, count_symbol = await process_min_PSAR(df_all_stocks, '10minute')
-    # result, error, count_symbol = await process_min_PSAR(df_all_stocks, '15minute')
-    # result, error, count_symbol = await process_min_PSAR(df_all_stocks, '30minute')
-    # result, error, count_symbol = await process_min_PSAR(df_all_stocks, '60minute')
-    # return
+    await process_min_LRC(df_all_stocks, '60minute')
+    await process_min_LRC(df_all_stocks, '30minute')
+    await process_min_LRC(df_all_stocks, '10minute')
+    await process_min_LRC(df_all_stocks, '15minute')
+    await process_min_LRC(df_all_stocks, '5minute')
+    await process_min_LRC(df_all_stocks, '3minute')
+    await process_min_LRC(df_all_stocks, 'minute')
+    await process_min_LRC(df_all_stocks, '2minute')
+    
+    return
     df = await db.get_pre_market_steps()
     if datetime.now().hour > 16:
         df = await db.get_pre_market_steps_ignore_date()
