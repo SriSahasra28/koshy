@@ -52,6 +52,11 @@ log = True
 interval = '1minute'
 
 async def get_data_zerodha_recursive(interval, from_date, edate, symbol):
+    if not isinstance(from_date, datetime):
+        from_date = datetime.combine(from_date, tm(9, 15, 0))
+    if not isinstance(edate, datetime):
+        edate = datetime.combine(edate, tm(15, 30, 0))
+        
     df_instrument = await db.get_instrument_token(symbol)
     if len(df_instrument) == 0:
         info = f"instrument token not found {symbol}"
@@ -63,11 +68,19 @@ async def get_data_zerodha_recursive(interval, from_date, edate, symbol):
     days = 5
     while from_date < edate:
         if from_date >= (edate - timedelta(days)):
-            data_frames.append(zerodha.gethistoricaldata(token, from_date, edate, interval))
+            df = zerodha.gethistoricaldata(token, from_date, edate, interval)
+            if len(df) == 0:
+                break
+            else:
+                data_frames.append(df)
             break
         else:
             to_date = from_date + timedelta(days)
-            data_frames.append(zerodha.gethistoricaldata(token, from_date, to_date, interval))
+            df = zerodha.gethistoricaldata(token, from_date, to_date, interval)
+            if len(df) == 0:
+                break
+            else:
+                data_frames.append(df)
             from_date = to_date
 
     data = pd.concat(data_frames, ignore_index=True)

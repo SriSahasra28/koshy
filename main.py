@@ -57,10 +57,11 @@ class Start(object):
     async def close_pool(self):
         await self.db.close_pool()
     async def get_data_zerodha_recursive(self, interval, from_date, edate, symbol):
-        if isinstance(from_date, datetime):
-            from_date = from_date.date()
-        if isinstance(edate, datetime):
-            edate = edate.date()
+        if not isinstance(from_date, datetime):
+            from_date = datetime.combine(from_date, tm(9, 15, 0))
+
+        if not isinstance(edate, datetime):
+            edate = datetime.combine(edate, tm(15, 30, 0))
         df_instrument = await self.db.get_instrument_token(symbol)
         if len(df_instrument) == 0:
             info = f"instrument token not found {symbol}"
@@ -72,11 +73,19 @@ class Start(object):
         days = 5
         while from_date < edate:
             if from_date >= (edate - timedelta(days)):
-                data_frames.append(self.zerodha.gethistoricaldata(token, from_date, edate, interval))
+                df = self.zerodha.gethistoricaldata(token, from_date, edate, interval)
+                if len(df) == 0:
+                    break
+                else:
+                    data_frames.append(df)
                 break
             else:
                 to_date = from_date + timedelta(days)
-                data_frames.append(self.zerodha.gethistoricaldata(token, from_date, to_date, interval))
+                df = self.zerodha.gethistoricaldata(token, from_date, edate, interval)
+                if len(df) == 0:
+                    break
+                else:
+                    data_frames.append(df)
                 from_date = to_date
         if data_frames:
             data = pd.concat(data_frames, ignore_index=True)
@@ -943,14 +952,14 @@ class Start(object):
 async def main():
     start = Start()
     current_datetime = datetime.now()
-    #await start.start_pool()
-    #df_all_stocks = await start.db.get_monitor_symbols_to_trade()
-    #await start.download_one_min(df_all_stocks, current_datetime)
+    await start.start_pool()
+    df_all_stocks = await start.db.get_monitor_symbols_to_trade()
+    await start.download_one_min(df_all_stocks, current_datetime)
     #await start.final_download()
     #await start.download_current_data()
-    # await asyncio.sleep(1)
-    # await start.close_pool()
-    # return
+    await asyncio.sleep(1)
+    await start.close_pool()
+    return
     while True:
         CurrentDateTime = datetime.now()
         current_time = CurrentDateTime.time()
