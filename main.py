@@ -943,14 +943,14 @@ class Start(object):
 async def main():
     start = Start()
     current_datetime = datetime.now()
-    await start.start_pool()
-    df_all_stocks = await start.db.get_monitor_symbols_to_trade()
+    #await start.start_pool()
+    #df_all_stocks = await start.db.get_monitor_symbols_to_trade()
     #await start.download_one_min(df_all_stocks, current_datetime)
-    await start.final_download()
+    #await start.final_download()
     #await start.download_current_data()
-    await asyncio.sleep(1)
-    await start.close_pool()
-    return
+    # await asyncio.sleep(1)
+    # await start.close_pool()
+    # return
     while True:
         CurrentDateTime = datetime.now()
         current_time = CurrentDateTime.time()
@@ -965,7 +965,7 @@ async def main():
             await asyncio.sleep(1)
         elif current_time >= start.exit_time:
             await start.start_pool()
-            #await start.final_download()
+            await start.final_download()
             await asyncio.sleep(1)
             await start.close_pool()
             print('Exitting Market time Over')
