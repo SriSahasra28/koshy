@@ -933,7 +933,7 @@ async def process_LRC(df, table_name, exchange_code, lrc_period, lrc_stdev):
 
 async def process_min_LRC(df_all_stocks, interval):
     global lrc_period, lrc_stdev
-    print('in process_min_LRC')
+    print('in process_min_LRC', interval)
     count = 0
     table_name = 'one_min_ohlc'
     if interval == '5minute':
@@ -950,19 +950,20 @@ async def process_min_LRC(df_all_stocks, interval):
         table_name = 'thirty_min_ohlc'
     elif interval == '60minute':
         table_name = 'one_hour_ohlc'
+
     for index, row in df_all_stocks.iterrows():
         count += 1
         exchange_code = row['symbol']
 
-    await db.reset_LRL(table_name, exchange_code)
-    df = await db.get_last_n_close(exchange_code, table_name, lrc_period)
-    if len(df) == 0:
-        print('LRC get_last_n_close not found skipping', exchange_code, table_name)
-        return
-    else:
-        df[['close']] = df[['close']].astype(float)
+        await db.reset_LRL(table_name, exchange_code)
+        df = await db.get_last_n_close(exchange_code, table_name, lrc_period)
+        if len(df) == 0:
+            print('LRC get_last_n_close not found skipping', exchange_code, table_name)
+            return
+        else:
+            df[['close']] = df[['close']].astype(float)
 
-    await process_LRC(df, table_name, exchange_code, lrc_period, lrc_stdev)
+        await process_LRC(df, table_name, exchange_code, lrc_period, lrc_stdev)
 
     return 1, None, count
 async def main():
