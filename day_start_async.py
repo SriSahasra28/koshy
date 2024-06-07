@@ -959,7 +959,7 @@ async def process_min_LRC(df_all_stocks, interval):
         df = await db.get_last_n_close(exchange_code, table_name, lrc_period)
         if len(df) < 10:
             print('LRC get_last_n_close not found skipping', exchange_code, table_name)
-            return
+            continue
         else:
             df[['close']] = df[['close']].astype(float)
 
