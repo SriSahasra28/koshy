@@ -953,15 +953,16 @@ async def process_min_LRC(df_all_stocks, interval):
     for index, row in df_all_stocks.iterrows():
         count += 1
         exchange_code = row['symbol']
-        df = await db.get_last_n_close(exchange_code, table_name, lrc_period)
-        if len(df) < lrc_period - 1:
-            if log == True:
-                print('LRC get_last_n_close not enough data found skipping', exchange_code, table_name)
-            continue
-        else:
-            df[['close']] = df[['close']].astype(float)
 
-        await process_LRC(df, table_name, exchange_code, lrc_period, lrc_stdev)
+    await db.reset_LRL(table_name, exchange_code)
+    df = await db.get_last_n_close(exchange_code, table_name, lrc_period)
+    if len(df) == 0:
+        print('LRC get_last_n_close not found skipping', exchange_code, table_name)
+        return
+    else:
+        df[['close']] = df[['close']].astype(float)
+
+    await process_LRC(df, table_name, exchange_code, lrc_period, lrc_stdev)
 
     return 1, None, count
 async def main():
@@ -974,16 +975,16 @@ async def main():
     #return
     df_all_stocks = await db.get_monitor_symbols_to_trade()
     #df_all_stocks = await db.get_download_symbols_to_trade()
-    # await process_min_LRC(df_all_stocks, '60minute')
-    # await process_min_LRC(df_all_stocks, '30minute')
-    # await process_min_LRC(df_all_stocks, '10minute')
-    # await process_min_LRC(df_all_stocks, '15minute')
-    # await process_min_LRC(df_all_stocks, '5minute')
-    # await process_min_LRC(df_all_stocks, '3minute')
-    # await process_min_LRC(df_all_stocks, 'minute')
-    # await process_min_LRC(df_all_stocks, '2minute')
+    await process_min_LRC(df_all_stocks, '60minute')
+    await process_min_LRC(df_all_stocks, '30minute')
+    await process_min_LRC(df_all_stocks, '10minute')
+    await process_min_LRC(df_all_stocks, '15minute')
+    await process_min_LRC(df_all_stocks, '5minute')
+    await process_min_LRC(df_all_stocks, '3minute')
+    await process_min_LRC(df_all_stocks, 'minute')
+    await process_min_LRC(df_all_stocks, '2minute')
     
-    # return
+    return
     df = await db.get_pre_market_steps()
     if datetime.now().hour > 16:
         df = await db.get_pre_market_steps_ignore_date()

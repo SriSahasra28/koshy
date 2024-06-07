@@ -627,6 +627,15 @@ class dbconnection:
                     await conn.commit()
         except Exception as e:
             raise e
+    async def reset_LRL(self, table_name, symbol):
+        query = f"update {table_name} set LRL = null, UCL = null, LCL = null where symbol = '{symbol}';"
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(query)
+                    await conn.commit()
+        except Exception as e:
+            raise e
 
     async def close_pool(self):
             self.pool.close()
