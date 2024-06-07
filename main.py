@@ -240,6 +240,9 @@ class Start(object):
                 df.dropna(inplace=True)
                 df.reset_index(inplace=True)
 
+                BATCH_SIZE = 1000
+                batch_data = []
+
                 for index, row in df.iterrows():
                     date_val = row['datetime']
                     open_val = row['open']
@@ -251,8 +254,30 @@ class Start(object):
                     ha_high = row['ha_high']
                     ha_low = row['ha_low']
                     ha_close = row['ha_close']
+                    
                     print(f"{date_val=} {ha_open=} {ha_close=}")
-                    await self.db.insert_ohlc_data(table_name, exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val, ha_open, ha_high, ha_low, ha_close)            
+                    batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val, ha_open, ha_high, ha_low, ha_close))
+                    
+                    if len(batch_data) >= BATCH_SIZE:
+                        await self.db.insert_batch_data(table_name, batch_data)
+                        batch_data = []
+
+                if batch_data:
+                    await self.db.insert_batch_data(table_name, batch_data)
+
+                # for index, row in df.iterrows():
+                #     date_val = row['datetime']
+                #     open_val = row['open']
+                #     high_val = row['high']
+                #     low_val = row['low']
+                #     close_val = row['close']
+                #     volume_val = 0
+                #     ha_open = row['ha_open']
+                #     ha_high = row['ha_high']
+                #     ha_low = row['ha_low']
+                #     ha_close = row['ha_close']
+                #     print(f"{date_val=} {ha_open=} {ha_close=}")
+                #     await self.db.insert_ohlc_data(table_name, exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val, ha_open, ha_high, ha_low, ha_close)            
 
     async def download_one_min(self, df_stocks, current_datetime):
         print('download_one_min')
@@ -292,16 +317,35 @@ class Start(object):
 
                 if len_df > 0:
                     df['date'] = pd.to_datetime(df['date'])
+                
+                BATCH_SIZE = 1000
+                batch_data = []
+                print('insert_one_min_ohlc ', exchange_code)
+                for index, row in df.iterrows():
+                    date_val = row['date']
+                    open_val = row['open']
+                    high_val = row['high']
+                    low_val = row['low']
+                    close_val = row['close']
+                    volume_val = row['volume']                    
+                    batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val))
+
+                    if len(batch_data) >= BATCH_SIZE:
+                        await self.db.insert_one_min_batch_ohlc(batch_data)
+                        batch_data = []
+
+                if batch_data:
+                    await self.db.insert_one_min_batch_ohlc(batch_data)
                   
-                    for index, row in df.iterrows():
-                        date_val = row['date']
-                        open_val = row['open']
-                        high_val = row['high']
-                        low_val = row['low']
-                        close_val = row['close']
-                        volume_val = row['volume']
-                        print('insert_one_min_ohlc ', exchange_code, date_val)
-                        await self.db.insert_one_min_ohlc(exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val)
+                    # for index, row in df.iterrows():
+                    #     date_val = row['date']
+                    #     open_val = row['open']
+                    #     high_val = row['high']
+                    #     low_val = row['low']
+                    #     close_val = row['close']
+                    #     volume_val = row['volume']
+                    #     print('insert_one_min_ohlc ', exchange_code, date_val)
+                    #     await self.db.insert_one_min_ohlc(exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val)
 
         return missed_df
     async def download_three_min(self, df_stocks, current_datetime):
@@ -343,6 +387,19 @@ class Start(object):
                 if len_df > 0:
                     df['date'] = pd.to_datetime(df['date'])
                   
+                    # for index, row in df.iterrows():
+                    #     date_val = row['date']
+                    #     open_val = row['open']
+                    #     high_val = row['high']
+                    #     low_val = row['low']
+                    #     close_val = row['close']
+                    #     volume_val = row['volume']
+                    #     print('insert_three_min_ohlc ', exchange_code, date_val)
+                    #     await self.db.insert_three_min_ohlc(exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val)
+
+                    BATCH_SIZE = 1000
+                    batch_data = []
+                    print('insert_three_min_ohlc ', exchange_code)
                     for index, row in df.iterrows():
                         date_val = row['date']
                         open_val = row['open']
@@ -350,8 +407,15 @@ class Start(object):
                         low_val = row['low']
                         close_val = row['close']
                         volume_val = row['volume']
-                        print('insert_three_min_ohlc ', exchange_code, date_val)
-                        await self.db.insert_three_min_ohlc(exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val)
+
+                        batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val))
+
+                        if len(batch_data) >= BATCH_SIZE:
+                            await self.db.insert_batch_three_min_ohlc(batch_data)
+                            batch_data = []
+
+                    if batch_data:
+                        await self.db.insert_batch_three_min_ohlc(batch_data)
 
         return missed_df
     async def download_five_min(self, df_stocks, current_datetime):

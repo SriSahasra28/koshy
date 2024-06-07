@@ -263,6 +263,24 @@ class dbconnection:
                     await conn.commit()
         except Exception as e:
             raise e
+
+
+    # insert_batch_ohlc
+    async def insert_one_min_batch_ohlc(self, batch_data):
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    query = """
+                    INSERT IGNORE INTO one_min_ohlc
+                    (symbol, datetime, open, high, low, close, volume) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """
+                    await cur.executemany(query, batch_data)
+                    await conn.commit()
+        except Exception as e:
+            raise e
+
+
     async def insert_three_min_ohlc(self, symbol, datetime, open, high, low, close, volume):
         try:
             async with self.pool.acquire() as conn:
@@ -274,6 +292,22 @@ class dbconnection:
                     await conn.commit()
         except Exception as e:
             raise e
+
+    # insert_batch_three_min_ohlc
+    async def insert_batch_three_min_ohlc(self, batch_data):
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    query = """
+                    INSERT IGNORE INTO three_min_ohlc
+                    (symbol, datetime, open, high, low, close, volume) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """
+                    await cur.executemany(query, batch_data)
+                    await conn.commit()
+        except Exception as e:
+            raise e
+
     async def insert_thirty_min_ohlc(self, symbol, datetime, open, high, low, close, volume):
         try:
             async with self.pool.acquire() as conn:
