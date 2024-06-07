@@ -71,20 +71,28 @@ class Start(object):
         to_date = edate
         data_frames = []  # List to store DataFrames
         days = 5
+        print(f"{from_date=} {edate=}")
         while from_date < edate:
             if from_date >= (edate - timedelta(days)):
-                df = self.zerodha.gethistoricaldata(token, from_date, edate, interval)
+                print('in if');
+                df = self.zerodha.gethistoricaldata(token, from_date.date(), edate.date(), interval)
                 if len(df) == 0:
+                    print('if len df 0 break')
                     break
                 else:
+                    print('append if')
                     data_frames.append(df)
                 break
             else:
+                print('in else');
                 to_date = from_date + timedelta(days)
-                df = self.zerodha.gethistoricaldata(token, from_date, edate, interval)
+                print(f"{from_date=}, {to_date=}")
+                df = self.zerodha.gethistoricaldata(token, from_date.date(), to_date.date(), interval)
                 if len(df) == 0:
-                    break
+                    print('else len df 0 break')
+                    #break
                 else:
+                    print('append else')
                     data_frames.append(df)
                 from_date = to_date
         if data_frames:

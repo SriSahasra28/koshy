@@ -56,9 +56,9 @@ interval = '1minute'
 async def get_data_zerodha_recursive(interval, from_date, edate, symbol):
     if not isinstance(from_date, datetime):
         from_date = datetime.combine(from_date, tm(9, 15, 0))
+
     if not isinstance(edate, datetime):
         edate = datetime.combine(edate, tm(15, 30, 0))
-
     df_instrument = await db.get_instrument_token(symbol)
     if len(df_instrument) == 0:
         info = f"instrument token not found {symbol}"
@@ -68,25 +68,37 @@ async def get_data_zerodha_recursive(interval, from_date, edate, symbol):
     to_date = edate
     data_frames = []  # List to store DataFrames
     days = 5
+    print(f"{from_date=} {edate=}")
     while from_date < edate:
         if from_date >= (edate - timedelta(days)):
-            df = zerodha.gethistoricaldata(token, from_date, edate, interval)
+            print('in if');
+            df = zerodha.gethistoricaldata(token, from_date.date(), edate.date(), interval)
             if len(df) == 0:
+                print('if len df 0 break')
                 break
             else:
+                print('append if')
                 data_frames.append(df)
             break
         else:
+            print('in else');
             to_date = from_date + timedelta(days)
-            df = zerodha.gethistoricaldata(token, from_date, to_date, interval)
+            print(f"{from_date=}, {to_date=}")
+            df = zerodha.gethistoricaldata(token, from_date.date(), to_date.date(), interval)
             if len(df) == 0:
-                break
+                print('else len df 0 break')
+                #break
             else:
+                print('append else')
                 data_frames.append(df)
             from_date = to_date
-
-    data = pd.concat(data_frames, ignore_index=True)
-    return data
+    if data_frames:
+        data = pd.concat(data_frames, ignore_index=True)
+        return data
+    else:
+        print("No data frames to concatenate")
+        data = pd.DataFrame() 
+        return data 
 
 async def get_data_zerodha(interval, sdate, edate, symbol):
     df_instrument = await db.get_instrument_token(symbol)
