@@ -975,7 +975,7 @@ async def main():
     #await update_symbols_to_monitor()
     #return
     df_all_stocks = await db.get_monitor_symbols_to_trade()
-    df_all_stocks = await db.get_download_symbols_to_trade()
+    
     await process_min_LRC(df_all_stocks, '60minute')
     await process_min_LRC(df_all_stocks, '30minute')
     await process_min_LRC(df_all_stocks, '10minute')
