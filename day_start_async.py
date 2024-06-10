@@ -976,16 +976,16 @@ async def main():
     #return
     df_all_stocks = await db.get_monitor_symbols_to_trade()
     #df_all_stocks = await db.get_download_symbols_to_trade()
-    await process_min_LRC(df_all_stocks, '60minute')
-    await process_min_LRC(df_all_stocks, '30minute')
-    await process_min_LRC(df_all_stocks, '10minute')
-    await process_min_LRC(df_all_stocks, '15minute')
-    await process_min_LRC(df_all_stocks, '5minute')
-    await process_min_LRC(df_all_stocks, '3minute')
-    await process_min_LRC(df_all_stocks, 'minute')
-    await process_min_LRC(df_all_stocks, '2minute')
+    # await process_min_LRC(df_all_stocks, '60minute')
+    # await process_min_LRC(df_all_stocks, '30minute')
+    # await process_min_LRC(df_all_stocks, '10minute')
+    # await process_min_LRC(df_all_stocks, '15minute')
+    # await process_min_LRC(df_all_stocks, '5minute')
+    # await process_min_LRC(df_all_stocks, '3minute')
+    # await process_min_LRC(df_all_stocks, 'minute')
+    # await process_min_LRC(df_all_stocks, '2minute')
     
-    return
+    # return
     df = await db.get_pre_market_steps()
     if datetime.now().hour > 16:
         df = await db.get_pre_market_steps_ignore_date()
