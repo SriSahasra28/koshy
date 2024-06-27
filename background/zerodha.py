@@ -177,8 +177,8 @@ class zeroda():
     #         print(f"Error getting LTP {scripCode}")
     #         return -1
     
-    # def getLTPMulti(self, scrip_list):
-    #     return self.kite.ltp(scrip_list)
+    def getLTPMulti(self, scrip_list):
+        return self.kite.ltp(scrip_list)
     
     # def getCurrentDateTime(self):
     #     return datetime.datetime.now()
