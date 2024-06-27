@@ -248,7 +248,7 @@ class dbconnection:
             async with self.pool.acquire() as conn:
                 async with conn.cursor() as cur:
                     await cur.executemany(
-                        f"INSERT INTO {table_name} (symbol, datetime, open, high, low, close, volume, ha_open, ha_high, ha_low, ha_close) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                        f"INSERT IGNORE INTO {table_name} (symbol, datetime, open, high, low, close, volume, ha_open, ha_high, ha_low, ha_close) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                         batch_data
                     )
                     await conn.commit()
