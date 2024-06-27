@@ -954,6 +954,7 @@ async def process_min_LRC(df_all_stocks, interval):
 
     return 1, None, count
 async def rollover():
+    global today
     df_cred = await db.get_data("SELECT option_rollover_date FROM credentials;")
     option_rollover_date = df_cred['option_turnover_date'].iloc[0]
     if option_rollover_date.month < today.month:
@@ -987,11 +988,11 @@ async def main():
     await db.create_pool(loop)
     global df_dates, df_last_five_dates
     df= pd.DataFrame()
-    global last_working_day
+    global last_working_day, today
     # check monthly turnover
-    rollover = 0
+    rollover_status = 0
     if today.day > 20:
-        rollover = await rollover()
+        rollover_status = await rollover()
     df_all_stocks = await db.get_monitor_symbols_to_trade()
   
     # return
@@ -1009,7 +1010,7 @@ async def main():
         last_execution = row['last_execution']
         print(f"{action=}")
 
-        if action == 'update_symbols_to_monitor' and rollover == 0:
+        if action == 'update_symbols_to_monitor' and rollover_status == 0:
             result, error, count_symbol = await update_symbols_to_download()
             current_date_string = datetime.now().strftime("%Y-%m-%d")
             important_data = f"{result=} {error=} {count_symbol=} {id=}"
