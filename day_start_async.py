@@ -993,6 +993,7 @@ async def main():
     global last_working_day, today
     # check monthly turnover
     rollover_status = 0
+    await db.run_query('truncate table pre_process_logs;')
     if today.day > 20:
         rollover_status = await rollover()
     df_all_stocks = await db.get_monitor_symbols_to_trade()
@@ -1013,12 +1014,13 @@ async def main():
         print(f"{action=}")
 
         if action == 'update_symbols_to_monitor' and rollover_status == 0:
-            result, error, count_symbol = await update_symbols_to_download()
-            current_date_string = datetime.now().strftime("%Y-%m-%d")
-            important_data = f"{result=} {error=} {count_symbol=} {id=}"
-            await db.pre_process_logs(current_date_string, 'update_symbols_to_monitor', 'function result', important_data, 1)
-            if result == 1:
-                await db.update_pre_market_steps(id, last_status=1, last_record_date=current_date_string)
+            pass
+            # result, error, count_symbol = await update_symbols_to_download()
+            # current_date_string = datetime.now().strftime("%Y-%m-%d")
+            # important_data = f"{result=} {error=} {count_symbol=} {id=}"
+            # await db.pre_process_logs(current_date_string, 'update_symbols_to_monitor', 'function result', important_data, 1)
+            # if result == 1:
+            #     await db.update_pre_market_steps(id, last_status=1, last_record_date=current_date_string)
         elif action == 'download onemin ohlc':
             result, error, count_symbol = await download_ohlc(df_all_stocks, 'minute')
             current_date_string = datetime.now().strftime("%Y-%m-%d")
