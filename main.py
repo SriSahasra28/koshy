@@ -31,7 +31,7 @@ class Start(object):
         self.ordertype = 'market'
         self.exchange = 'NFO'
         self.userid = 'koshy'
-        self.sdate = self.zerodha.getCurrentDate()
+        self.sdate = datetime.now()
         #self.sdate_iso = self.sdate.isoformat()[:10] + 'T09:15:00.000Z'
         self.log = True
         self.trade =True

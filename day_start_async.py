@@ -674,6 +674,7 @@ async def download_ohlc_2min(df_all_stocks):
         return 1, 'None', count
     else:
         return 0, 'Unknown Error', count                
+
 async def download_ohlc(df_all_stocks, interval):
     global last_working_day
     last_working_day_str = last_working_day.strftime('%d-%m-%Y')
@@ -784,20 +785,6 @@ async def download_ohlc(df_all_stocks, interval):
         if batch_data:
             await db.insert_batch_data(table_name, batch_data)
 
-        # for index, row in df.iterrows():
-        #     date_val = row['date']
-        #     open_val = row['open']
-        #     high_val = row['high']
-        #     low_val = row['low']
-        #     close_val = row['close']
-        #     volume_val = row['volume']  
-        #     ha_open = row['ha_open']
-        #     ha_high = row['ha_high']
-        #     ha_low = row['ha_low']
-        #     ha_close = row['ha_close']
-        #     await db.insert_ohlc_data(table_name, exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val, ha_open, ha_high, ha_low, ha_close)
-        #     if log == True:
-        #         print('insert_' + table_name, exchange_code, date_val)
         count += 1
     if count > 0:
         return 1, 'None', count
@@ -849,8 +836,8 @@ async def update_symbols_to_monitor():
                 await db.insert_into_monitor_symbols(instrument_token, tradingsymbol, expiry, strike, instrument_type, ltp, main_symbol)
     return 1, 'None', 1
 
-async def process_option(symbol, ltp, option_type, main_symbol):
-    df_strikes = instruments.get_nearest_ten_strikes(symbol, ltp, option_type)
+async def process_option(symbol, ltp, option_type, main_symbol, next_month=False):
+    df_strikes = instruments.get_nearest_ten_strikes(symbol, ltp, option_type, next_month)
     df_strikes.expiry = pd.to_datetime(df_strikes.expiry)
     for index, row in df_strikes.iterrows():
         instrument_token = row['instrument_token']
@@ -861,7 +848,7 @@ async def process_option(symbol, ltp, option_type, main_symbol):
         print(f"{instrument_token}, {tradingsymbol}, {expiry=}, {strike=}, {instrument_type=}")
         await db.insert_into_monitor_symbols(instrument_token, tradingsymbol, expiry, strike, instrument_type, ltp, main_symbol)
 
-async def update_symbols_to_download():
+async def update_symbols_to_download(next_month=False):
     #df_basket_stocks = await db.get_active_basket_symbols()
     df_all_stocks = await db.get_all_stocks_token()
     symbols_list = df_all_stocks['tradingsymbol'].unique()
@@ -893,8 +880,8 @@ async def update_symbols_to_download():
             symbol = 'MIDCPNIFTY'
         print(f"{symbol} {ltp=}")
         if ltp is not None:
-            await process_option(symbol, ltp, 'CE', main_symbol)
-            await process_option(symbol, ltp, 'PE', main_symbol)
+            await process_option(symbol, ltp, 'CE', main_symbol, next_month)
+            await process_option(symbol, ltp, 'PE', main_symbol, next_month)
     return 1, 'None', 1
 
 async def linear_regression_channel(close, period, std_multiplier):
@@ -966,25 +953,47 @@ async def process_min_LRC(df_all_stocks, interval):
         await process_LRC(df, table_name, exchange_code, lrc_period, lrc_stdev)
 
     return 1, None, count
+async def rollover():
+    df_cred = await db.get_data("SELECT option_rollover_date FROM credentials;")
+    option_rollover_date = df_cred['option_turnover_date'].iloc[0]
+    if option_rollover_date.month < today.month:
+        df_expiry = await db.get_data("SELECT expiry from instruments where exchange = 'NFO' and month(expiry) = month(curdate()) and year(expiry) = year(curdate()) and name in ('NIFTY', 'BANKNIFTY','FINNIFTY') order by expiry desc limit 1;")
+        last_expiry = df_expiry.expiry.iloc[0]
+        if (datetime.now().hour >= 16 and last_expiry <= today) or (last_expiry < today):
+            print('Truncate tables & turnover option_date')
+            await db.run_query('Truncate table one_min_ohlc;') 
+            await db.run_query('Truncate table fifteen_min_ohlc;')
+            await db.run_query('Truncate table five_min_ohlc;')
+            await db.run_query('Truncate table one_hour_ohlc;')
+            await db.run_query('Truncate table ten_min_ohlc;')
+            await db.run_query('Truncate table thirty_min_ohlc;')
+            await db.run_query('Truncate table three_min_ohlc;')
+            await db.run_query('Truncate table two_min_ohlc;')
+            # Update option_rollover_date
+            await db.run_query(f"Update credentials set option_rollover_date = '{today}'")
+            #Recreate     
+            await db.run_query('truncate table monitor_symbols;')
+            await update_symbols_to_download(next_month=True)
+            print('option rollover done')
+            return 1
+        else:
+            print('No rollover of option')
+            return 0
+    else:
+        print('No rollover of option')
+        return 0
 async def main():
     loop = asyncio.get_event_loop()
     await db.create_pool(loop)
     global df_dates, df_last_five_dates
     df= pd.DataFrame()
     global last_working_day
-    #await update_symbols_to_monitor()
-    #return
+    # check monthly turnover
+    rollover = 0
+    if today.day > 20:
+        rollover = await rollover()
     df_all_stocks = await db.get_monitor_symbols_to_trade()
-    
-    # await process_min_LRC(df_all_stocks, '60minute')
-    # await process_min_LRC(df_all_stocks, '30minute')
-    # await process_min_LRC(df_all_stocks, '10minute')
-    # await process_min_LRC(df_all_stocks, '15minute')
-    # await process_min_LRC(df_all_stocks, '5minute')
-    # await process_min_LRC(df_all_stocks, '3minute')
-    # await process_min_LRC(df_all_stocks, 'minute')
-    # await process_min_LRC(df_all_stocks, '2minute')
-    
+  
     # return
     df = await db.get_pre_market_steps()
     if datetime.now().hour > 16:
@@ -1000,7 +1009,7 @@ async def main():
         last_execution = row['last_execution']
         print(f"{action=}")
 
-        if action == 'update_symbols_to_monitor':
+        if action == 'update_symbols_to_monitor' and rollover == 0:
             result, error, count_symbol = await update_symbols_to_download()
             current_date_string = datetime.now().strftime("%Y-%m-%d")
             important_data = f"{result=} {error=} {count_symbol=} {id=}"

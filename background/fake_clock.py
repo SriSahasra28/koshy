@@ -2,7 +2,7 @@
 import datetime
 class Clock:
     def __init__(self, current_date):
-        print('Fake Clock Initialized')
+        #print('Fake Clock Initialized')
         print(current_date, type(current_date))
         self.current_datetime = datetime.datetime(current_date.year, current_date.month, current_date.day,9,25,1)
         #self.current_datetime = datetime.datetime(current_date.year, current_date.month, current_date.day,14,28,40)

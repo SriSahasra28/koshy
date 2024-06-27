@@ -4,6 +4,8 @@ import pandas as pd
 import time
 from background.set import settings
 import numpy as np
+from pymysql.err import OperationalError
+
 
 class dbconnection:
     def __init__(self):
@@ -246,12 +248,63 @@ class dbconnection:
             async with self.pool.acquire() as conn:
                 async with conn.cursor() as cur:
                     await cur.executemany(
-                        f"INSERT IGNORE INTO {table_name} (symbol, datetime, open, high, low, close, volume, ha_open, ha_high, ha_low, ha_close) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                        f"INSERT INTO {table_name} (symbol, datetime, open, high, low, close, volume, ha_open, ha_high, ha_low, ha_close) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                         batch_data
                     )
                     await conn.commit()
         except Exception as e:
             raise e
+
+    # async def insert_batch_data(self, table_name, batch_data):
+    #     MAX_RETRIES = 5  # Maximum number of retries
+    #     RETRY_DELAY = 2  # Delay between retries in seconds
+    #     retries = 0
+    #     while retries < MAX_RETRIES:
+    #         try:
+    #             async with self.pool.acquire() as conn:
+    #                 async with conn.cursor() as cur:
+    #                     await cur.executemany(
+    #                         f"""
+    #                         INSERT IGNORE INTO {table_name} 
+    #                         (symbol, datetime, open, high, low, close, volume, ha_open, ha_high, ha_low, ha_close)
+    #                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    #                         """,
+    #                         batch_data
+    #                     )
+    #                     await conn.commit()
+    #             return  # Exit the function on success
+    #         except OperationalError as e:
+    #             if e.args[0] == 1213:  # Deadlock error code
+    #                 retries += 1
+    #                 if retries < MAX_RETRIES:
+    #                     print(f"Deadlock detected, retrying {retries}/{MAX_RETRIES}...")
+    #                     await asyncio.sleep(RETRY_DELAY)  # Wait before retrying
+    #                 else:
+    #                     print("Max retries reached. Could not complete the transaction due to deadlock.")
+    #                     raise
+    #             else:
+    #                 raise  # Raise other operational errors immediately
+    async def get_old_data(self, table_name):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(f"Select symbol, datetime, open, high, low, close, volume FROM {table_name} ORDER BY id DESC LIMIT 80000;")
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        if len(df) > 0:
+            df = df[::-1] # reverse as its desc order
+            df = df.sort_values(by='datetime')
+        return df
+
+    async def get_old_data_all(self, table_name):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(f"Select symbol, datetime, open, high, low, close FROM {table_name} ORDER BY datetime;")
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df
+    
     async def insert_one_min_ohlc(self, symbol, datetime, open, high, low, close, volume):
         try:
             async with self.pool.acquire() as conn:
@@ -483,6 +536,27 @@ class dbconnection:
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
         return df 
+    
+    async def get_new_rows(self, symbol, threshold, tablename):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT datetime, open, high, low, close, volume FROM {tablename} where symbol = '{symbol}' and datetime > '{threshold}' order by `datetime`;"
+                #print(query)
+                await cur.execute(query)
+                data = await cur.fetchall()
+                data_as_list = [list(row) for row in data]    
+        return data_as_list
+
+    async def get_all_rows(self, symbol, tablename):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT datetime, open, high, low, close, volume FROM {tablename} where symbol = '{symbol}' order by `datetime`;"
+                #print(query)
+                await cur.execute(query)
+                data = await cur.fetchall()
+                data_as_list = [list(row) for row in data]    
+        return data_as_list
+    
     async def get_prior_rows_fifty(self, symbol, threshold, tablename):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
@@ -512,6 +586,13 @@ class dbconnection:
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
         return df
+    async def get_ohlc_last_datetime_v2(self, symbol, table_name):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT datetime FROM {table_name} where symbol = '{symbol}' order by datetime desc Limit 1;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        return data
 
     async def get_fifteen_min_ohlc_last_datetime(self, symbol):
         async with self.pool.acquire() as conn:
@@ -568,6 +649,42 @@ class dbconnection:
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
         return df  
+
+    async def get_priority_instruments_to_trade(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT m.instrument_token, m.symbol FROM monitor_symbols m left join instruments i on m.instrument_token = i.instrument_token where m.active = 1 and i.expiry >= curdate() and m.stock_symbol in (SELECT distinct symbol FROM basket_stocks);"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        return data
+
+    async def get_non_priority_instruments_to_trade(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT m.instrument_token, m.symbol FROM monitor_symbols m left join instruments i on m.instrument_token = i.instrument_token where m.active = 1 and i.expiry >= curdate() and m.stock_symbol not in (SELECT distinct symbol FROM basket_stocks);"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        return data
+
+    async def get_table_metadata(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT table_name, token, last_datetime FROM table_metadata;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        data_np = np.array(data)
+        return data_np
+
+    async def get_table_datetime_groupby(self, table_name):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT symbol, max(datetime) as datetime FROM {table_name} o left join instruments i on o.symbol = i.tradingsymbol group by symbol;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df
+
     async def get_download_symbols_to_trade(self):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
@@ -680,3 +797,30 @@ class dbconnection:
                     await conn.commit()
         except Exception as e:
             raise e
+    async def upsert_table_metadata(self, batch_data):
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    # Call the stored procedure with each batch of data
+                    for data in batch_data:
+                        table_name, token, datetime_val = data
+                        await cur.callproc('upsert_table_metadata', (table_name, token, datetime_val))
+                    await conn.commit()
+        except Exception as e:
+            raise e
+
+    async def get_lrc_settings(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT period, standardDeviation FROM lrc_settings;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        return data
+
+    async def get_psar_settings(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT acceleration, max_acceleration FROM psar_settings;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        return data
