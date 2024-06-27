@@ -957,6 +957,7 @@ async def rollover():
     global today
     df_cred = await db.get_data("SELECT option_rollover_date FROM credentials;")
     option_rollover_date = df_cred['option_rollover_date'].iloc[0]
+    print(f"{option_rollover_date=}")
     if option_rollover_date.month < today.month:
         df_expiry = await db.get_data("SELECT expiry from instruments where exchange = 'NFO' and month(expiry) = month(curdate()) and year(expiry) = year(curdate()) and name in ('NIFTY', 'BANKNIFTY','FINNIFTY') order by expiry desc limit 1;")
         last_expiry = df_expiry.expiry.iloc[0]
@@ -970,18 +971,19 @@ async def rollover():
             await db.run_query('Truncate table thirty_min_ohlc;')
             await db.run_query('Truncate table three_min_ohlc;')
             await db.run_query('Truncate table two_min_ohlc;')
-            # Update option_rollover_date
-            await db.run_query(f"Update credentials set option_rollover_date = '{today}'")
+
             #Recreate     
             await db.run_query('truncate table monitor_symbols;')
             await update_symbols_to_download(next_month=True)
+            # Update option_rollover_date
+            await db.run_query(f"Update credentials set option_rollover_date = '{today}'")
             print('option rollover done')
             return 1
         else:
-            print('No rollover of option')
+            print(f'No rollover of option inner {last_expiry=} {today}')
             return 0
     else:
-        print('No rollover of option')
+        print('No rollover of option- option_rollover_date same month')
         return 0
 async def main():
     loop = asyncio.get_event_loop()
@@ -995,7 +997,7 @@ async def main():
         rollover_status = await rollover()
     df_all_stocks = await db.get_monitor_symbols_to_trade()
   
-    # return
+    #return
     df = await db.get_pre_market_steps()
     if datetime.now().hour > 16:
         df = await db.get_pre_market_steps_ignore_date()
