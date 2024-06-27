@@ -956,7 +956,7 @@ async def process_min_LRC(df_all_stocks, interval):
 async def rollover():
     global today
     df_cred = await db.get_data("SELECT option_rollover_date FROM credentials;")
-    option_rollover_date = df_cred['option_turnover_date'].iloc[0]
+    option_rollover_date = df_cred['option_rollover_date'].iloc[0]
     if option_rollover_date.month < today.month:
         df_expiry = await db.get_data("SELECT expiry from instruments where exchange = 'NFO' and month(expiry) = month(curdate()) and year(expiry) = year(curdate()) and name in ('NIFTY', 'BANKNIFTY','FINNIFTY') order by expiry desc limit 1;")
         last_expiry = df_expiry.expiry.iloc[0]
