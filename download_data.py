@@ -25,6 +25,7 @@ import numpy as np
 import time
 log = True
 from numba import jit
+
 interval_to_table = {
     'minute': 'one_min_ohlc','2minute': 'two_min_ohlc', '5minute': 'five_min_ohlc', '3minute': 'three_min_ohlc', '10minute': 'ten_min_ohlc',
     '15minute': 'fifteen_min_ohlc', '30minute': 'thirty_min_ohlc', '60minute': 'one_hour_ohlc'
@@ -353,15 +354,15 @@ async def download(tpl_stocks, interval):
         
             if len(batch_data) >= BATCH_SIZE:
                 print('insert_batch_data partial', exchange_code)
-                await db.insert_batch_data(table_name, batch_data)
-                #asyncio.create_task(db.insert_batch_data(table_name, batch_data))  # Run insert in background
+                #await db.insert_batch_data(table_name, batch_data)
+                asyncio.create_task(db.insert_batch_data(table_name, batch_data))  # Run insert in background
                 batch_data = []
 
         if batch_data:
             print('insert_batch_data final', exchange_code)
             #print(batch_data)
-            #asyncio.create_task(db.insert_batch_data(table_name, batch_data))  # Run insert in background
-            await db.insert_batch_data(table_name, batch_data)
+            asyncio.create_task(db.insert_batch_data(table_name, batch_data))  # Run insert in background
+            #await db.insert_batch_data(table_name, batch_data)
         else:
             print('no batch_data', exchange_code)
         (lrc_period, lrc_stdev) = lrc_settings[0]

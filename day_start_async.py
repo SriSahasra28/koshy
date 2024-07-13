@@ -1014,13 +1014,12 @@ async def main():
         print(f"{action=}")
 
         if action == 'update_symbols_to_monitor' and rollover_status == 0:
-            pass
-            # result, error, count_symbol = await update_symbols_to_download()
-            # current_date_string = datetime.now().strftime("%Y-%m-%d")
-            # important_data = f"{result=} {error=} {count_symbol=} {id=}"
-            # await db.pre_process_logs(current_date_string, 'update_symbols_to_monitor', 'function result', important_data, 1)
-            # if result == 1:
-            #     await db.update_pre_market_steps(id, last_status=1, last_record_date=current_date_string)
+            result, error, count_symbol = await update_symbols_to_download()
+            current_date_string = datetime.now().strftime("%Y-%m-%d")
+            important_data = f"{result=} {error=} {count_symbol=} {id=}"
+            await db.pre_process_logs(current_date_string, 'update_symbols_to_monitor', 'function result', important_data, 1)
+            if result == 1:
+                await db.update_pre_market_steps(id, last_status=1, last_record_date=current_date_string)
         elif action == 'download onemin ohlc':
             result, error, count_symbol = await download_ohlc(df_all_stocks, 'minute')
             current_date_string = datetime.now().strftime("%Y-%m-%d")
