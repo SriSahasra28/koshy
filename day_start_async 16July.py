@@ -16,18 +16,9 @@ db = dbconnection()
 instruments = instruments_class()
 import numpy as np
 import pandas_ta as ta
-from numba import jit
-interval_to_table = {
-    'minute': 'one_min_ohlc','2minute': 'two_min_ohlc', '5minute': 'five_min_ohlc', '3minute': 'three_min_ohlc', '10minute': 'ten_min_ohlc',
-    '15minute': 'fifteen_min_ohlc', '30minute': 'thirty_min_ohlc', '60minute': 'one_hour_ohlc'
-}
+import math
 
 global last_working_day, today, yesterday, holidays, holidays_datetime, lrc_period, lrc_stdev
-global data_collections, dates_collections, instr_tpl
-
-data_collections = {f"{key}": {} for key in interval_to_table}
-dates_collections = {f"{key}": {} for key in interval_to_table}
-
 lrc_period = 100
 lrc_stdev = 2
 
@@ -51,13 +42,9 @@ else:
     elif last_working_day.weekday() == 6:
         last_working_day = last_working_day - timedelta(days=2)
 
-global df_instruments, df_dates, start_time, end_time, step, zerodha_last_trans
+global df_instruments, df_dates, start_time, end_time, step
 start_time = datetime.strptime('09:15:00', '%H:%M:%S')
 end_time = datetime.strptime('15:29:00', '%H:%M:%S')
-zerodha_last_trans = None
-start_time_trans = tm(9, 15)
-end_time_trans = tm(15, 30)
-
 step = timedelta(minutes=1)
 
 global data_collection, log, sdate_iso, interval
@@ -65,31 +52,6 @@ sdate_iso = today.isoformat()[:10] + 'T09:15:00.000Z'
 data_collection = {}
 log = True
 interval = '1minute'
-
-@jit(nopython=True)
-def heikin_ashi_numpy(open_prices, high_prices, low_prices, close_prices):
-    open_prices = np.asarray(open_prices)
-    high_prices = np.asarray(high_prices)
-    low_prices = np.asarray(low_prices)
-    close_prices = np.asarray(close_prices)
-
-    ha_open = np.zeros_like(open_prices)
-    ha_high = np.zeros_like(high_prices)
-    ha_low = np.zeros_like(low_prices)
-    ha_close = np.zeros_like(close_prices)
-
-    ha_close[0] = (open_prices[0] + high_prices[0] + low_prices[0] + close_prices[0]) / 4
-    ha_open[0] = (open_prices[0] + close_prices[0]) / 2
-    ha_high[0] = high_prices[0]
-    ha_low[0] = low_prices[0]
-
-    for i in range(1, len(open_prices)):
-        ha_close[i] = (open_prices[i] + high_prices[i] + low_prices[i] + close_prices[i]) / 4
-        ha_open[i] = (ha_open[i-1] + ha_close[i-1]) / 2
-        ha_high[i] = max(high_prices[i], ha_open[i], ha_close[i])
-        ha_low[i] = min(low_prices[i], ha_open[i], ha_close[i])
-
-    return ha_open, ha_high, ha_low, ha_close
 
 async def get_data_zerodha_recursive(interval, from_date, edate, symbol):
     if not isinstance(from_date, datetime):
@@ -138,59 +100,31 @@ async def get_data_zerodha_recursive(interval, from_date, edate, symbol):
         data = pd.DataFrame() 
         return data 
 
-async def get_data_zerodha_recursive_list(interval, from_date, edate, token, symbol):
-    print(f" ---------- in get_data_zerodha_recursive_list {symbol} {interval} {from_date=} {edate=}")
-    to_date = edate
-    # List to accumulate dictionaries
-    data_list = []  
-    days = 95 
-    if interval == 'minute':
-        days = 50
-    invalid_token = False
-    error = ''
-    
-    while from_date < edate:
-        if from_date >= (edate - timedelta(days)):
-            status, data, Error = zerodha.gethistoricaldata_v3(token, from_date, edate, interval)
-            if status == 0:
-                error = "{}".format(Error)
-                print(f"get_data_zerodha_recursive {error=}")
-                if error == 'invalid token':
-                    invalid_token = True
-                    info = f"invalid token {symbol}"
-                    await db.pre_process_logs(today_str, 'download_ohlc', 'invalid token', info, 5)
-                    await db.run_query(f"update monitor_symbols set active = 0 where symbol = '{symbol}'")
-                elif Error == 'Too many requests':
-                    await asyncio.sleep(1)
-                    info = f"{Error}"
-                    await db.pre_process_logs(today_str, 'Error download_ohlc', symbol, info, 5)
-                break
-            else:
-                data_list.extend(data)  # Append the list of dictionaries
-            break
+async def get_data_zerodha(interval, sdate, edate, symbol):
+    df_instrument = await db.get_instrument_token(symbol)
+    if len(df_instrument) == 0:
+        info = f"instrument token not found {symbol}"
+        print(info)
+        return pd.DataFrame()
+    token = int(df_instrument.instrument_token.iloc[0])
+    global log
+    for retry in range(10):
+        data = zerodha.gethistoricaldata(token, sdate, edate, interval)
+        if len(data) > 0:
+            if log == True:
+                print(f"Data Received in {retry} try")
+            break  
         else:
-            to_date = from_date + timedelta(days)
-            status, data, Error = zerodha.gethistoricaldata_v3(token, from_date, to_date, interval)
-            if status == 0:
-                if Error == 'invalid token':
-                    info = f"invalid token {symbol}"
-                    await db.pre_process_logs(today_str, 'download_ohlc', 'invalid token', info, 5)
-                    await db.run_query(f"update monitor_symbols set active = 0 where symbol = '{symbol}'")
-                elif Error == 'Too many requests':
-                    await asyncio.sleep(1)
-                    info = f"{Error}"
-                    await db.pre_process_logs(today_str, 'Error download_ohlc', symbol, info, 5)
-                break
-            else:
-                data_list.extend(data)  # Append the list of dictionaries
-            from_date = to_date
-    
-    if data_list:
-        return 1, data_list, None  # Return the merged list of dictionaries
+            print(f'unable to get data {retry} of 10')
+            asyncio.sleep(1) 
+    if len(data) < 2:
+        if log == True:
+            print("Unable to fetch data after multiple retries.")
+        return data
     else:
-        print("No data to process")
-        return 0, None, error
-    
+        if log == True:
+            print('return new data')
+        return data
 async def initialize():
     global df_instruments, df_dates, df_last_five_dates
     await db.truncate_pre_process_logs()
@@ -218,6 +152,229 @@ async def get_holidays():
     except requests.exceptions.RequestException as e:
         if log == True:
             print("Request error:", e)
+
+async def download_daily_ohlc_of_stocks(df_all_stocks):
+    global last_working_day
+    last_working_day_str = last_working_day.strftime('%d-%m-%Y')
+    count = 0
+    for index, row in df_all_stocks.iterrows():
+        exchange_code = row['symbol']
+        df_last_date = await db.get_last_ohlc_date_symbol(exchange_code)
+        len_df_last_date = len(df_last_date)
+        if log == True:
+            print(f"{exchange_code=} {len_df_last_date=}")
+        if len(df_last_date) == 0:
+            if log == True:
+                print('lastdate not found for ', exchange_code)
+            # download 7 days data
+            days_prior = yesterday - timedelta(days=7)
+            startdate = days_prior
+            
+            startdate_str = days_prior.strftime('%d-%m-%Y')
+        else:
+            last_date = df_last_date.datetime.iloc[0]
+            if log == True:
+                print(f"{exchange_code} {last_date=}")
+            startdate = last_date
+            sdate_iso = last_date.isoformat()[:10] + 'T07:00:00.000Z'
+            startdate_str = last_date.strftime('%d-%m-%Y')
+        if not isinstance(startdate, date):
+            startdate = startdate.date() 
+        if startdate >= last_working_day:
+            if log == True:
+                important_data = f"{exchange_code} startdate:{startdate_str} > last_working_day:{last_working_day_str}"
+                print(important_data)
+                await db.pre_process_logs(today_str, 'download_daily_ohlc_of_stocks', 'startdate >= last_working_dayignore', important_data, 0)
+            continue
+
+        if log == True:
+            important_data = f"{exchange_code=} {startdate_str=} {last_working_day=}"
+            await db.pre_process_logs(today_str, 'download_daily_ohlc_of_stocks', 'download using zerodha', important_data, 0)
+
+        result = 0
+        df = ""
+        try:
+            if log == True:
+                print('gethistorical_daily', exchange_code)
+            df = await get_data_zerodha('day', startdate, last_working_day, exchange_code)
+            print(df.head())
+            result = 1
+        except Exception as e:
+            if log == True:
+                print('Error in downloading', exchange_code, e)
+            result = -1
+
+        if result == -1:
+            await db.pre_process_logs(today_str, 'download_daily_ohlc_of_stocks', 'download using history api', 'Timeout Error', 4)
+            continue
+        if type(df) is str:
+            if log == True:
+                print(df) 
+                await db.pre_process_logs(today_str, 'download_daily_ohlc_of_stocks', 'download using history api', 'df str', 4)
+            continue
+
+        for index, row in df.iterrows():
+            date_val = row['date']
+            open_val = row['open']
+            high_val = row['high']
+            low_val = row['low']
+            close_val = row['close']
+            volume_val = row['volume']
+            await db.insert_daily_ohlc(exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val)
+            if log == True:
+                print('insert_daily_ohlc', exchange_code, date_val)
+        count += 1
+    if count > 0:
+        return 1, 'None', count
+    else:
+        return 0, 'Unknown Error', count
+
+async def pine_ema(src, length):
+    alpha = 2 / (length + 1)
+    ema_values = []
+    sum_ema = None
+    for value in src:
+        if sum_ema is None:
+            sum_ema = np.mean(src[:length]) 
+        else:
+            sum_ema = alpha * value + (1 - alpha) * sum_ema            
+        ema_values.append(sum_ema)
+    return ema_values
+def calculate_new_ema(latest_close, previous_ema, length):
+    alpha = 2 / (length + 1)
+    new_ema = (latest_close - previous_ema) * alpha + previous_ema
+    return new_ema
+async def MACD(data, fast_ma_period = 12, slow_ma_period = 26, signal_period = 9):
+    data["FMA"] = data['close'].ewm(span=fast_ma_period).mean()
+    data["SMA"] = data['close'].ewm(span=slow_ma_period).mean()
+    data["MACD"] = data["FMA"] - data["SMA"]
+    data["Signal"] = data['MACD'].ewm(span=signal_period).mean()
+    data["histogram"] = data["MACD"] - data["Signal"]
+    data = data[["close", "MACD", "Signal", "histogram"]]
+    return data
+async def process_hist(unproc_datetime, df_new, df_old, table, exchange_code):
+    df_new['histogram'] = 0
+    df_new['hist_color'] = None
+    df_new['sell_counter'] = 0
+    df_new['buy_counter'] = 0
+    df_new['macd_buy'] = ''
+    df_new['macd_sell'] = ''
+    df_old.sort_values(by='datetime', inplace=True)
+    df_concatenated = pd.concat([df_old, df_new], ignore_index=True)
+    df_MACD = await MACD(df_concatenated[['datetime', 'close']])
+    df_concatenated['histogram'] = df_MACD['histogram']
+    index_with_none = df_concatenated[df_concatenated['hist_color'].isna()].index
+    first_index_with_none = index_with_none[0] if len(index_with_none) > 0 else 1
+    print("First index with None value in 'hist_color' column:", first_index_with_none)
+
+    for i in range(first_index_with_none, len(df_concatenated)):
+        if df_concatenated['histogram'].iloc[i] < df_concatenated['histogram'].iloc[i-1]:
+            df_concatenated.at[i, 'hist_color'] = 'r'  # If current value is lower than previous, assign red color
+        elif df_concatenated['histogram'].iloc[i] == df_concatenated['histogram'].iloc[i-1]:
+            df_concatenated.at[i, 'hist_color'] = df_concatenated['hist_color'].iloc[i-1] 
+        else:
+            df_concatenated.at[i, 'hist_color'] = 'g'  # Otherwise, assign green color
+
+    sell_exit = buy_exit = True
+    filtered_df = df_concatenated[df_concatenated['macd_buy'] != 'EASE']
+    if not filtered_df.empty:
+        last_value = filtered_df['macd_buy'].iloc[-1]
+        if last_value != 'EXIT':
+            buy_exit = False
+
+    filtered_df = df_concatenated[df_concatenated['macd_sell'] != 'EASE']
+    if not filtered_df.empty:
+        last_value = filtered_df['macd_sell'].iloc[-1]
+        if last_value != 'EXIT':
+            sell_exit = False
+    print(f"{buy_exit=} {sell_exit=}")
+    for i in range(first_index_with_none, len(df_concatenated)):
+        row_0 = df_concatenated.iloc[i]
+        row_minus_1 = df_concatenated.iloc[i - 1]
+        row_minus_2 = df_concatenated.iloc[i - 2]
+        hist_0 = row_0['histogram']
+        hist_minus_1 = row_minus_1['histogram']
+        
+        color_0 = row_0['hist_color']
+        color_minus_1 = row_minus_1['hist_color']
+        
+        buy_minus_1 = row_minus_1['macd_buy']
+        sell_minus_1 = row_minus_1['macd_sell']
+        
+        counter_buy_minus_1 = row_minus_1['buy_counter']
+        counter_sell_minus_1 = row_minus_1['sell_counter']
+        #print(f"{color_minus_1=} {color_0=} {buy_minus_1=}")
+        if color_minus_1 == 'g' and color_0 == 'g' and (buy_minus_1 == 'EASE' or buy_minus_1 == 'BUY' or buy_minus_1 == 'Strong BUY'):
+            sell_minus_2 = row_minus_2['macd_sell']
+            df_concatenated.at[i, 'macd_buy'] = 'BUY'
+            df_concatenated.at[i,'sell_counter'] = 0
+            buy_exit = False
+            if hist_minus_1 < 0 and hist_0 > 0:
+                df_concatenated.at[i, 'macd_buy'] = 'Strong BUY'            
+            if counter_buy_minus_1 == 0:
+                df_concatenated.at[i,'buy_counter'] = 1
+            elif buy_minus_1 == 'BUY' or buy_minus_1 == 'Strong BUY':
+                df_concatenated.at[i,'buy_counter'] = counter_buy_minus_1 + 1
+            if sell_minus_1 == 'EASE' and sell_exit == False:
+                df_concatenated.at[i, 'macd_sell'] = 'EXIT'
+                sell_exit = True
+            else:
+                df_concatenated.at[i, 'macd_sell'] = 'EASE'
+        elif color_minus_1 == 'r' and color_0 == 'r' and (sell_minus_1 == 'EASE' or sell_minus_1 == 'SELL' or sell_minus_1 == 'Strong SELL'):
+            buy_minus_2 = row_minus_2['macd_buy']
+            df_concatenated.at[i, 'macd_sell'] = 'SELL'
+            df_concatenated.at[i,'sell_counter'] = 0
+            sell_exit = False
+            if hist_minus_1 > 0 and hist_0 < 0:
+                df_concatenated.at[i, 'macd_sell'] = 'Strong SELL'
+            if counter_sell_minus_1 == 0:
+                df_concatenated.at[i,'sell_counter'] = 1
+            elif sell_minus_1 == 'SELL' or sell_minus_1 == 'Strong SELL':
+                df_concatenated.at[i,'sell_counter'] = counter_sell_minus_1 + 1
+            if buy_minus_1 == 'EASE' and buy_exit == False:
+                df_concatenated.at[i, 'macd_buy'] = 'EXIT'
+                buy_exit = True
+            else:
+                df_concatenated.at[i, 'macd_buy'] = 'EASE'
+        elif color_minus_1 == 'g' and color_0 == 'r':
+            df_concatenated.at[i, 'macd_buy'] = 'EASE'
+            df_concatenated.at[i,'buy_counter'] = 0
+            df_concatenated.at[i, 'macd_sell'] = 'EASE'
+            df_concatenated.at[i,'sell_counter'] = 0
+            if buy_minus_1 == 'EASE' and buy_exit == False:
+                df_concatenated.at[i, 'macd_buy'] = 'EXIT'
+                buy_exit = True
+
+        elif color_minus_1 == 'r' and color_0 == 'g':
+            df_concatenated.at[i, 'macd_sell'] = 'EASE'
+            df_concatenated.at[i,'sell_counter'] = 0
+            df_concatenated.at[i,'buy_counter'] = 0
+            df_concatenated.at[i, 'macd_buy'] = 'EASE'
+            if sell_minus_1 == 'EASE' and sell_exit == False:
+                df_concatenated.at[i, 'macd_sell'] = 'EXIT'
+                sell_exit = True
+
+    df_filtered = df_concatenated.loc[df_concatenated['datetime'] >= unproc_datetime]
+    df_filtered['histogram'] = df_filtered['histogram'].astype(float).round(2)
+    print('len df_filtered', len(df_filtered))
+    for index, row in df_filtered.iterrows():
+        datetime_val = row['datetime']  
+        histogram = row['histogram']
+        hist_color = row['hist_color'] 
+        sell_counter = row['sell_counter'] 
+        buy_counter = row['buy_counter']
+        macd_buy= row['macd_buy'] 
+        macd_sell= row['macd_sell']
+        if table == '5min':
+            await db.update_five_min_histogram(histogram, hist_color, sell_counter, buy_counter, macd_buy, macd_sell,  exchange_code, datetime_val)
+        elif table == '15min':
+            await db.update_fifteen_min_histogram(histogram, hist_color, sell_counter, buy_counter, macd_buy, macd_sell,  exchange_code, datetime_val)
+        elif table == '30min':
+            await db.update_thirty_min_histogram(histogram, hist_color, sell_counter, buy_counter, macd_buy, macd_sell,  exchange_code, datetime_val)
+        elif table == '1hour':
+            await db.update_hour_histogram(histogram, hist_color, sell_counter, buy_counter, macd_buy, macd_sell,  exchange_code, datetime_val)
+        elif table == 'daily':
+            await db.update_day_histogram(histogram, hist_color, sell_counter, buy_counter, macd_buy, macd_sell,  exchange_code, datetime_val)
 
 async def process_heikinashi(unproc_datetime, df_new, df_old, table, exchange_code):
     df_old.sort_values(by='datetime', inplace=True)
@@ -283,6 +440,122 @@ async def process_min_heikin(df_all_stocks, interval):
         await process_heikinashi(unproc_datetime, df_new, df_old, table_name, exchange_code)
 
     return 1, None, count
+
+async def process_PSAR(unproc_datetime, df_new, df_old, table, exchange_code):
+    df_old.sort_values(by='datetime', inplace=True)
+    df_concatenated = pd.concat([df_old, df_new], ignore_index=True)
+    # get from db af=0.02, max_af=0.2
+    ta_psar = ta.psar(high=df_concatenated['high'], low=df_concatenated['low'], close=df_concatenated['close'], af0=0.02, af=0.02, max_af=0.2)
+
+    df_concatenated['PSAR_D'] = ta_psar['PSARr_0.02_0.2']
+    df_concatenated['PSAR_L'] = ta_psar['PSARl_0.02_0.2']
+    df_concatenated['PSAR_S'] = ta_psar['PSARs_0.02_0.2']
+    # df_concatenated['L'] = np.where(pd.isna(df_concatenated['PSAR_S']), df_concatenated['low'] - (df_concatenated['low'] * 0.025), None)
+    # df_concatenated['S'] = np.where(pd.isna(df_concatenated['PSAR_L']), df_concatenated['high'] + (df_concatenated['high'] * 0.025), None)
+    df_concatenated['L'] = np.where(pd.isna(df_concatenated['PSAR_S']), 1, None)
+    df_concatenated['S'] = np.where(pd.isna(df_concatenated['PSAR_L']), 1, None)
+    df_concatenated['L'] = np.where(df_concatenated['PSAR_D'] == 1, df_concatenated.L, None)
+    df_concatenated['S'] = np.where(df_concatenated['PSAR_D'] == 1, df_concatenated.S, None)
+    df_concatenated['PSAR'] = df_concatenated['PSAR_L'].combine_first(df_concatenated['PSAR_S'])
+    
+    df_filtered = df_concatenated.loc[df_concatenated['datetime'] >= unproc_datetime]
+    df_filtered.dropna(subset=['PSAR'], inplace=True)
+
+    print('len df_filtered', len(df_filtered))
+    if len(df_filtered) == 0:
+        return
+    # for index, row in df_filtered.iterrows():
+    #     datetime_val = row['datetime']  
+    #     PSAR = row['PSAR']
+    #     PSAR_L = row['L']
+    #     PSAR_S = row['S']
+    #     await db.update_PSAR(PSAR, PSAR_L, PSAR_S, exchange_code, datetime_val, table)
+    updates = []
+    for index, row in df_filtered.iterrows():
+        datetime_val = row['datetime']
+        PSAR = row['PSAR']
+        PSAR_L = row['L']
+        PSAR_S = row['S']
+        # PSAR_L = 'NULL' if row['L'] == None else row['L']
+        # PSAR_S = 'NULL' if row['S'] == None else row['S']
+        updates.append((PSAR, PSAR_L, PSAR_L, PSAR_S, PSAR_S, exchange_code, datetime_val))
+    if len(updates) > 0:
+        print(updates[0])
+        await db.update_PSAR_batch(updates, table)
+
+async def process_min_PSAR(df_all_stocks, interval):
+    print('in process_min_PSAR')
+    count = 0
+    table_name = 'one_min_ohlc'
+    if interval == '5minute':
+        table_name = 'five_min_ohlc'
+    if interval == '2minute':
+        table_name = 'two_min_ohlc'
+    elif interval == '3minute':
+        table_name = 'three_min_ohlc'
+    elif interval == '10minute':
+        table_name = 'ten_min_ohlc'
+    elif interval == '15minute':
+        table_name = 'fifteen_min_ohlc'
+    elif interval == '30minute':
+        table_name = 'thirty_min_ohlc'
+    elif interval == '60minute':
+        table_name = 'one_hour_ohlc'
+    for index, row in df_all_stocks.iterrows():
+        count += 1
+        exchange_code = row['symbol']
+        df_new = await db.get_psar_null_ohlc(exchange_code, table_name)
+        if len(df_new) == 0:
+            if log == True:
+                print('PSAR NULL ohlc not found skipping', exchange_code, table_name)
+            continue
+        else:
+            df_new[['open', 'high', 'low', 'close']] = df_new[['open', 'high', 'low', 'close']].astype(float)
+
+        unproc_datetime = df_new.datetime.iloc[0]
+        df_old = await db.get_prior_rows_fifty(exchange_code, unproc_datetime, table_name)
+        if len(df_old) == 0:
+            if log == True:
+                print('data not found - get_prior_rows_fifty', table_name)
+            process_fresh = True
+        else:
+            df_old[['open', 'high', 'low', 'close']] = df_old[['open', 'high', 'low', 'close']].astype(float)
+        await process_PSAR(unproc_datetime, df_new, df_old, table_name, exchange_code)
+
+    return 1, None, count
+
+async def process_fivemin_heikin(df_all_stocks):
+    print('in process_fivemin_heikin')
+    count = 0
+    table_name = 'five_min_ohlc'
+    for index, row in df_all_stocks.iterrows():
+        count += 1
+        exchange_code = row['symbol']
+        df_new = await db.get_null_ohlc(exchange_code, table_name)
+        if len(df_new) == 0:
+            if log == True:
+                print('NULL ohlc not found No need to process', exchange_code, table_name)
+            continue
+        else:
+            df_new['open'] = df_new['open'].astype(float)
+            df_new['high'] = df_new['high'].astype(float)
+            df_new['low'] = df_new['low'].astype(float)
+            df_new['close'] = df_new['close'].astype(float)
+        unproc_datetime = df_new.datetime.iloc[0]
+        df_old = await db.get_prior_rows(exchange_code, unproc_datetime, table_name)
+        if len(df_old) == 0:
+            if log == True:
+                print('data not found - get_prior_thirty_rows', table_name)
+            process_fresh = True
+        else:
+            df_new['open'] = df_new['open'].astype(float)
+            df_new['high'] = df_new['high'].astype(float)
+            df_new['low'] = df_new['low'].astype(float)
+            df_new['close'] = df_new['close'].astype(float)
+        await process_heikinashi(unproc_datetime, df_new, df_old, table_name, exchange_code)
+        
+    return 1, None, count
+
 
 async def download_ohlc_2min(df_all_stocks):
     table_name = 'two_min_ohlc'
@@ -406,7 +679,19 @@ async def download_ohlc(df_all_stocks, interval):
     global last_working_day
     last_working_day_str = last_working_day.strftime('%d-%m-%Y')
     count = 0
-    table_name =  interval_to_table.get(interval, None)
+    table_name = 'one_min_ohlc'
+    if interval == '5minute':
+        table_name = 'five_min_ohlc'
+    elif interval == '3minute':
+        table_name = 'three_min_ohlc'
+    elif interval == '10minute':
+        table_name = 'ten_min_ohlc'
+    elif interval == '15minute':
+        table_name = 'fifteen_min_ohlc'
+    elif interval == '30minute':
+        table_name = 'thirty_min_ohlc'
+    elif interval == '60minute':
+        table_name = 'one_hour_ohlc'
     for index, row in df_all_stocks.iterrows():
         exchange_code = row['symbol']
         df_last_datetime = await db.get_ohlc_last_datetime(exchange_code, table_name)
@@ -506,202 +791,6 @@ async def download_ohlc(df_all_stocks, interval):
     else:
         return 0, 'Unknown Error', count
 
-async def download_ohlc_v2(df_all_stocks, interval):
-    global db, data_collections, dates_collections, instr_tpl, zerodha_last_trans
-    table_name =  interval_to_table.get(interval, None)
-    end_date_today = datetime.today().replace(hour=15, minute=30, second=0, microsecond=0)
-    end_date_now = datetime.now().replace(second=0, microsecond=0)
-    error =''
-    if end_date_now > end_date_today:
-        end_date_now = end_date_today;
-    count_iter = 0
-    for index, row in df_all_stocks.iterrows():
-        exchange_code = row['symbol']
-        instrument_token = row['instrument_token'] # new added
-        current_time = datetime.now().strftime("%H:%M:%S")
-        print(current_time, exchange_code)
-        dates_list_old = []
-        
-        # Get Last datetime for the symbol in database already downloaded
-        if exchange_code in dates_collections[interval]:
-            dates_list_old = dates_collections[interval][exchange_code]
-        
-        if len(dates_list_old) > 0:
-            last_datetime = dates_list_old[-1]
-            last_datetime = last_datetime.replace(second=0, microsecond=0)
-            cutoff_datetime = last_datetime
-            print('cache datetime available', cutoff_datetime)  
-        else:
-            print('no cache')
-            last_datetime = datetime.today() - timedelta(days=90)
-            last_datetime = last_datetime.replace(hour=9, minute=15, second=0, microsecond=0)
-            cutoff_datetime = last_datetime
-        
-        if isinstance(last_datetime, pd.Timestamp):
-            last_datetime = last_datetime.to_pydatetime()
-        
-        if isinstance(cutoff_datetime, pd.Timestamp):
-            cutoff_datetime = cutoff_datetime.to_pydatetime()
-            #print(f"{last_datetime=} {cutoff_datetime=}")
-        result = status = 0
-        try:
-            print(f"{end_date_now=}, {end_date_today=}")
-            if cutoff_datetime >= end_date_now:
-                print(f"skipping cutoff_datetime:{cutoff_datetime} >= end_date_now:{end_date_now}", instrument_token)
-                continue
-            elif interval == '60minute':
-                exptime = cutoff_datetime + timedelta(hours=1)
-                print(f"{exptime=}")
-                if exptime > end_date_today:
-                    print(f'skipping {exptime=}', instrument_token)
-                    continue
-            print(f"{exchange_code} {last_datetime=}, {end_date_today=}")
-            
-            if zerodha_last_trans != None and last_datetime >= zerodha_last_trans:
-                print('skipping last_datetime >= zerodha_last_trans ', exchange_code)
-                continue
-
-            status, data, Error = await get_data_zerodha_recursive_list(interval, last_datetime, end_date_today, instrument_token, exchange_code)
-            #print(f"{status=}")
-        except Exception as e:
-            if log == True:
-                print('Error in downloading', exchange_code, e)
-                await db.pre_process_logs(today_str, 'gethistorical_cash', 'Error downloading', exchange_code, 3)
-            result = -1
-
-        if status == 1 and len(data) > 0:
-            result = 1
-        else:
-            if log == True:
-                await db.pre_process_logs(today_str, 'gethistorical_cash', 'download using history api', 'len data = 0', 1)
-            print('no data skipping processing')
-            await asyncio.sleep(0.25)
-            continue
-        if result == -1:
-            if log == True:
-                await db.pre_process_logs(today_str, 'gethistorical_cash', 'download using history api', 'Error', 4)
-            print('Error getting data skipping processing')
-            await asyncio.sleep(0.25)
-            continue
-        if status == 0:
-            if Error == 'invalid token':
-                await db.run_query(f"update monitor_symbols set active = 0 where symbol = '{exchange_code}'")
-            if log == True:
-                await db.pre_process_logs(today_str, 'gethistorical_cash', 'invalid token', exchange_code, 4)
-            print('invalid token skipping processing')
-            await asyncio.sleep(0.25)
-            continue        
-
-        dates_new = []
-        dates_new = [entry['date'].replace(tzinfo=None) for entry in data]  # Convert datetime to timezone-naive
-        opens = [entry['open'] for entry in data]
-        highs = [entry['high'] for entry in data]
-        lows = [entry['low'] for entry in data]
-        closes = [entry['close'] for entry in data]
-
-        if cutoff_datetime in dates_new:
-            index = dates_new.index(cutoff_datetime)
-            #print(f"Index of {cutoff_datetime}: {index}")
-            dates_new = dates_new[index+1:]
-            opens = opens[index+1:]
-            highs = highs[index+1:]
-            lows = lows[index+1:]
-            closes = closes[index+1:]
-        else:
-            print(f"cutoff_datetime: {cutoff_datetime} not found in the list.")
-
-        dates_combined = dates_new
-
-        data_np_new = np.zeros((len(dates_new), 5), dtype='float64')
-        data_np_new[:,0] = np.array(opens)
-        data_np_new[:,1] = np.array(highs)
-        data_np_new[:,2] = np.array(lows)
-        data_np_new[:,3] = np.array(closes)
-        #data_np_new[:,4] = np.array(volumes)
-        if len(data_np_new) == 0:
-            print('No Data to process skipping')
-            continue
-        data_combined = data_np_new
-
-        print('len data_combined:', len(data_combined), 'len dates_combined:', len(dates_combined))
-        
-        # calculate indicators
-        ha_open, ha_high, ha_low, ha_close = heikin_ashi_numpy(data_combined[:,0], data_combined[:,1], data_combined[:,2], data_combined[:,3])
-
-        index_start = 0
-        if cutoff_datetime in dates_combined:
-            index_start = dates_combined.index(cutoff_datetime)
-        
-        count_iter = count_iter + 1
-        BATCH_SIZE = 1000
-        batch_data = []
-        total_count = len(dates_combined)
-        for i in range(index_start + 1, total_count):
-            date_val = dates_combined[i]
-            python_time = date_val.time()
-            is_within_range = start_time_trans <= python_time <= end_time_trans
-            if is_within_range == False:
-                print(f'Time beyond range {date_val}')
-                continue
-            open_val = data_combined[i,0]
-            high_val = data_combined[i,1]
-            low_val = data_combined[i,2]
-            close_val = data_combined[i,3]
-            ha_open_val = ha_open[i]
-            ha_high_val = ha_high[i]
-            ha_low_val = ha_low[i]
-            ha_close_val = ha_close[i]
-            batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, ha_open_val, ha_high_val, ha_low_val, ha_close_val))
-            #print('batch_data', batch_data)
-            tasks = []
-            if len(batch_data) >= BATCH_SIZE:
-                current_time = datetime.now().strftime("%H:%M:%S")
-                print('insert_batch_data partial',current_time, ':', exchange_code)
-                if table_name == 'one_min_ohlc':
-                    print('in if one_min_ohlc')
-                    #asyncio.create_task(db.Insert_one_min_ohlc_proc_batch(batch_data))
-                    task = asyncio.create_task(db.Insert_one_min_ohlc_proc_batch(batch_data))
-                    tasks.append(task)
-                    #await db.Insert_one_min_ohlc_proc_batch(batch_data)
-                else:
-                    asyncio.create_task(db.insert_batch_data(table_name, batch_data))  # Run insert in background
-                batch_data = []
-
-        if batch_data:
-            current_time = datetime.now().strftime("%H:%M:%S")
-            print('insert_batch_data partial',current_time, ':', exchange_code)
-            if table_name == 'one_min_ohlc':
-                task = asyncio.create_task(db.Insert_one_min_ohlc_proc_batch(batch_data))
-                tasks.append(task)
-                #await db.Insert_one_min_ohlc_proc_batch(batch_data)
-            elif table_name == 'three_min_ohlc':
-                task = asyncio.create_task(db.Insert_three_min_ohlc_proc_batch(batch_data))
-                tasks.append(task)
-            elif table_name == 'five_min_ohlc':
-                task = asyncio.create_task(db.Insert_five_min_ohlc_proc_batch(batch_data))
-                tasks.append(task)
-            elif table_name == 'ten_min_ohlc':
-                task = asyncio.create_task(db.Insert_ten_min_ohlc_proc_batch(batch_data))
-                tasks.append(task)
-            elif table_name == 'fifteen_min_ohlc':
-                task = asyncio.create_task(db.Insert_fifteen_min_ohlc_proc_batch(batch_data))
-                tasks.append(task)
-            elif table_name == 'thirty_min_ohlc':
-                task = asyncio.create_task(db.Insert_thirty_min_ohlc_proc_batch(batch_data))
-                tasks.append(task)
-            elif table_name == 'hour_ohlc':
-                task = asyncio.create_task(db.Insert_hour_ohlc_proc_batch(batch_data))
-                tasks.append(task)
-            else:
-                print('No appropraite function found to insert data ', table_name)
-                #asyncio.create_task(db.insert_batch_data(table_name, batch_data))  # Run insert in background
-            #await db.insert_batch_data(table_name, batch_data)
-        else:
-            print('no batch_data', exchange_code)
-        print('done ', table_name,' ', exchange_code)
-        await asyncio.gather(*tasks)
-    return 1, error, count_iter
-
 async def update_symbols_to_monitor():
     df_basket_stocks = await db.get_active_basket_symbols()
     #df_basket_stocks = await db.get_all_stocks_token()
@@ -795,6 +884,75 @@ async def update_symbols_to_download(next_month=False):
             await process_option(symbol, ltp, 'PE', main_symbol, next_month)
     return 1, 'None', 1
 
+async def linear_regression_channel(close, period, std_multiplier):
+    close = close[-period:]
+    X = np.arange(len(close))
+    # Linear regression using np.polyfit
+    slope, intercept = np.polyfit(X, close, 1)
+    # Linear Regression Line (LRL)
+    LRL = intercept + slope * X
+    # Residuals (differences between actual values and LRL)
+    residuals = close - LRL
+    # Standard deviation of residuals
+    std_dev = np.std(residuals)
+    # Upper and Lower Channel Lines
+    UCL = LRL + std_multiplier * std_dev
+    LCL = LRL - std_multiplier * std_dev
+    
+    return LRL, UCL, LCL
+
+async def process_LRC(df, table_name, exchange_code, lrc_period, lrc_stdev):
+    close = df['close'].to_numpy()
+    LRL, UCL, LCL = await linear_regression_channel(close, lrc_period, lrc_stdev)
+    df['LRL'] = LRL
+    df['UCL'] = UCL
+    df['LCL'] = LCL
+    updates = []
+    for index, row in df.iterrows():
+        datetime_val = row['datetime']
+        LRL = row['LRL']
+        UCL = row['UCL']
+        LCL = row['LCL']
+        updates.append((LRL, UCL, LCL, exchange_code, datetime_val))
+    if len(updates) > 0:
+        print(updates[0])
+        await db.update_LRC_batch(updates, table_name)
+
+async def process_min_LRC(df_all_stocks, interval):
+    global lrc_period, lrc_stdev
+    print('in process_min_LRC', interval)
+    count = 0
+    table_name = 'one_min_ohlc'
+    if interval == '5minute':
+        table_name = 'five_min_ohlc'
+    if interval == '2minute':
+        table_name = 'two_min_ohlc'
+    elif interval == '3minute':
+        table_name = 'three_min_ohlc'
+    elif interval == '10minute':
+        table_name = 'ten_min_ohlc'
+    elif interval == '15minute':
+        table_name = 'fifteen_min_ohlc'
+    elif interval == '30minute':
+        table_name = 'thirty_min_ohlc'
+    elif interval == '60minute':
+        table_name = 'one_hour_ohlc'
+
+    for index, row in df_all_stocks.iterrows():
+        count += 1
+        exchange_code = row['symbol']
+
+        await db.reset_LRL(table_name, exchange_code)
+        df = await db.get_last_n_close(exchange_code, table_name, lrc_period)
+        if len(df) < 10:
+            print('LRC get_last_n_close not found skipping', exchange_code, table_name)
+            continue
+        else:
+            df[['close']] = df[['close']].astype(float)
+
+        await process_LRC(df, table_name, exchange_code, lrc_period, lrc_stdev)
+
+    return 1, None, count
 async def rollover():
     global today
     df_cred = await db.get_data("SELECT option_rollover_date FROM credentials;")
@@ -827,43 +985,20 @@ async def rollover():
     else:
         print('No rollover of option- option_rollover_date same month')
         return 0
-
 async def main():
     loop = asyncio.get_event_loop()
     await db.create_pool(loop)
     global df_dates, df_last_five_dates
     df= pd.DataFrame()
-    global last_working_day, today, instr_tpl
+    global last_working_day, today
     # check monthly turnover
     rollover_status = 0
     await db.run_query('truncate table pre_process_logs;')
     if today.day > 20:
         rollover_status = await rollover()
     df_all_stocks = await db.get_monitor_symbols_to_trade()
-    
-    global dates_collections, zerodha_last_trans
-    # Make a list of last_dates for all symbols in all tables
-    for interval, table_name in interval_to_table.items():
-        df_last_dates = await db.get_lastdate_symbols_all(table_name)
-        for s_value, group_df in df_last_dates.groupby('symbol'):
-            datetime_list = group_df['datetime'].tolist()
-            dates_collections[interval][s_value] = datetime_list
-    
-    status, data, Error = await get_data_zerodha_recursive_list('60minute',  datetime.now() - timedelta(days=5), datetime.now(), 256265, 'NIFTY 50')
-    if status == 1:
-        zerodha_last_trans = data[-1]['date'].replace(tzinfo=None)
-    else:
-        print('Error getting NIFTY data from Zerodha')
-        await db.pre_process_logs(datetime.now().strftime("%Y-%m-%d"), 'test zerodha', 'zerodha_last_trans', Error, 4)
-
-    # result, error, count_symbol = await download_ohlc_v2(df_all_stocks, 'minute')
-    # result, error, count_symbol = await download_ohlc_v2(df_all_stocks, '3minute')
-    # result, error, count_symbol = await download_ohlc_v2(df_all_stocks, '5minute')
-    # result, error, count_symbol = await download_ohlc_v2(df_all_stocks, '10minute')
-    # result, error, count_symbol = await download_ohlc_v2(df_all_stocks, '15minute')
-    # result, error, count_symbol = await download_ohlc_v2(df_all_stocks, '30minute')
-    # result, error, count_symbol = await download_ohlc_v2(df_all_stocks, '60minute')
-    # return
+  
+    #return
     df = await db.get_pre_market_steps()
     if datetime.now().hour > 16:
         df = await db.get_pre_market_steps_ignore_date()
@@ -886,8 +1021,7 @@ async def main():
             if result == 1:
                 await db.update_pre_market_steps(id, last_status=1, last_record_date=current_date_string)
         elif action == 'download onemin ohlc':
-            #result, error, count_symbol = await download_ohlc(df_all_stocks, 'minute')
-            result, error, count_symbol = await download_ohlc_v2(df_all_stocks, 'minute')
+            result, error, count_symbol = await download_ohlc(df_all_stocks, 'minute')
             current_date_string = datetime.now().strftime("%Y-%m-%d")
             important_data = f"{result=} {error=} {count_symbol=} {id=}"
             await db.pre_process_logs(current_date_string, 'download onemin ohlc', 'function result', important_data, 1)
@@ -905,7 +1039,7 @@ async def main():
                 last_record_date_str = last_record_date.datetime.iloc[0].strftime('%Y-%m-%d')
                 await db.update_pre_market_steps(id, last_status=1, last_record_date=last_record_date_str)
         elif action == 'download threemin ohlc':
-            result, error, count_symbol = await download_ohlc_v2(df_all_stocks, '3minute')
+            result, error, count_symbol = await download_ohlc(df_all_stocks, '3minute')
             current_date_string = datetime.now().strftime("%Y-%m-%d")
             important_data = f"{result=} {error=} {count_symbol=} {id=}"
             await db.pre_process_logs(current_date_string, 'download threemin ohlc', 'function result', important_data, 1)
@@ -914,7 +1048,7 @@ async def main():
                 last_record_date_str = last_record_date.datetime.iloc[0].strftime('%Y-%m-%d')
                 await db.update_pre_market_steps(id, last_status=1, last_record_date=last_record_date_str)
         elif action == 'download fivemin ohlc':
-            result, error, count_symbol = await download_ohlc_v2(df_all_stocks, '5minute')
+            result, error, count_symbol = await download_ohlc(df_all_stocks, '5minute')
             current_date_string = datetime.now().strftime("%Y-%m-%d")
             important_data = f"{result=} {error=} {count_symbol=} {id=}"
             await db.pre_process_logs(current_date_string, 'download fivemin ohlc', 'function result', important_data, 1)
@@ -923,7 +1057,7 @@ async def main():
                 last_record_date_str = last_record_date.datetime.iloc[0].strftime('%Y-%m-%d')
                 await db.update_pre_market_steps(id, last_status=1, last_record_date=last_record_date_str)
         elif action == 'download tenmin ohlc':
-            result, error, count_symbol = await download_ohlc_v2(df_all_stocks, '10minute')
+            result, error, count_symbol = await download_ohlc(df_all_stocks, '10minute')
             current_date_string = datetime.now().strftime("%Y-%m-%d")
             important_data = f"{result=} {error=} {count_symbol=} {id=}"
             await db.pre_process_logs(current_date_string, 'download tenmin ohlc', 'function result', important_data, 1)
@@ -932,7 +1066,7 @@ async def main():
                 last_record_date_str = last_record_date.datetime.iloc[0].strftime('%Y-%m-%d')
                 await db.update_pre_market_steps(id, last_status=1, last_record_date=last_record_date_str)
         elif action == 'download fiften_min ohlc':
-            result, error, count_symbol = await download_ohlc_v2(df_all_stocks, '15minute')
+            result, error, count_symbol = await download_ohlc(df_all_stocks, '15minute')
             current_date_string = datetime.now().strftime("%Y-%m-%d")
             important_data = f"{result=} {error=} {count_symbol=} {id=}"
             await db.pre_process_logs(current_date_string, 'download fiften_min ohlc', 'function result', important_data, 1)
@@ -941,7 +1075,7 @@ async def main():
                 last_record_date_str = last_record_date.datetime.iloc[0].strftime('%Y-%m-%d')
                 await db.update_pre_market_steps(id, last_status=1, last_record_date=last_record_date_str)
         elif action == 'download thirty_min ohlc':
-            result, error, count_symbol = await download_ohlc_v2(df_all_stocks, '30minute')
+            result, error, count_symbol = await download_ohlc(df_all_stocks, '30minute')
             current_date_string = datetime.now().strftime("%Y-%m-%d")
             important_data = f"{result=} {error=} {count_symbol=} {id=}"
             await db.pre_process_logs(current_date_string, 'download thirty_min ohlc', 'function result', important_data, 1)
@@ -950,7 +1084,7 @@ async def main():
                 last_record_date_str = last_record_date.datetime.iloc[0].strftime('%Y-%m-%d')
                 await db.update_pre_market_steps(id, last_status=1, last_record_date=last_record_date_str)
         elif action == 'download one_hour ohlc':
-            result, error, count_symbol = await download_ohlc_v2(df_all_stocks, '60minute')
+            result, error, count_symbol = await download_ohlc(df_all_stocks, '60minute')
             current_date_string = datetime.now().strftime("%Y-%m-%d")
             important_data = f"{result=} {error=} {count_symbol=} {id=}"
             await db.pre_process_logs(current_date_string, 'download one_hour ohlc', 'function result', important_data, 1)
@@ -959,15 +1093,14 @@ async def main():
                 last_record_date_str = last_record_date.datetime.iloc[0].strftime('%Y-%m-%d')
                 await db.update_pre_market_steps(id, last_status=1, last_record_date=last_record_date_str)
         elif action == 'process_PSAR':
-            pass
-            # result, error, count_symbol = await process_min_PSAR(df_all_stocks, 'minute')
-            # result, error, count_symbol = await process_min_PSAR(df_all_stocks, '2minute')
-            # result, error, count_symbol = await process_min_PSAR(df_all_stocks, '3minute')
-            # result, error, count_symbol = await process_min_PSAR(df_all_stocks, '5minute')
-            # result, error, count_symbol = await process_min_PSAR(df_all_stocks, '10minute')
-            # result, error, count_symbol = await process_min_PSAR(df_all_stocks, '15minute')
-            # result, error, count_symbol = await process_min_PSAR(df_all_stocks, '30minute')
-            # result, error, count_symbol = await process_min_PSAR(df_all_stocks, '60minute')
+            result, error, count_symbol = await process_min_PSAR(df_all_stocks, 'minute')
+            result, error, count_symbol = await process_min_PSAR(df_all_stocks, '2minute')
+            result, error, count_symbol = await process_min_PSAR(df_all_stocks, '3minute')
+            result, error, count_symbol = await process_min_PSAR(df_all_stocks, '5minute')
+            result, error, count_symbol = await process_min_PSAR(df_all_stocks, '10minute')
+            result, error, count_symbol = await process_min_PSAR(df_all_stocks, '15minute')
+            result, error, count_symbol = await process_min_PSAR(df_all_stocks, '30minute')
+            result, error, count_symbol = await process_min_PSAR(df_all_stocks, '60minute')
             current_date_string = datetime.now().strftime("%Y-%m-%d")
             important_data = f"{result=} {error=} {count_symbol=} {id=}"
             await db.pre_process_logs(current_date_string, 'process_PSAR', 'function result', important_data, 1)

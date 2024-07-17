@@ -65,9 +65,10 @@ async def get_data_zerodha_recursive_list(interval, from_date, edate, token, sym
                     info = f"invalid token {symbol}"
                     await db.pre_process_logs(today_str, 'download_ohlc', 'invalid token', info, 5)
                     await db.run_query(f"update monitor_symbols set active = 0 where symbol = '{symbol}'")
-                elif error == '':
-                    # getting too many requests, save to log
-                    pass
+                elif Error == 'Too many requests':
+                    await asyncio.sleep(1)
+                    info = f"{Error}"
+                    await db.pre_process_logs(today_str, 'Error download_ohlc', symbol, info, 5)
                 break
             else:
                 data_list.extend(data)  # Append the list of dictionaries
@@ -80,6 +81,10 @@ async def get_data_zerodha_recursive_list(interval, from_date, edate, token, sym
                     info = f"invalid token {symbol}"
                     await db.pre_process_logs(today_str, 'download_ohlc', 'invalid token', info, 5)
                     await db.run_query(f"update monitor_symbols set active = 0 where symbol = '{symbol}'")
+                elif Error == 'Too many requests':
+                    await asyncio.sleep(1)
+                    info = f"{Error}"
+                    await db.pre_process_logs(today_str, 'Error download_ohlc', symbol, info, 5)
                 break
             else:
                 data_list.extend(data)  # Append the list of dictionaries
@@ -195,7 +200,8 @@ async def download(tpl_stocks, interval):
             await db.pre_process_logs(today_str, 'checking disabled_symbols', 'skip not enabled', exchange_code, 1)
             continue
         else:
-            print(exchange_code)
+            current_time = datetime.now().strftime("%H:%M:%S")
+            print(current_time, exchange_code)
             dates_list_old = []
             # check for interval
             #data_collections['minute']['ULTRACEMCO24JUN9800CE']
@@ -206,9 +212,9 @@ async def download(tpl_stocks, interval):
                 last_datetime = dates_list_old[-1]
                 last_datetime = last_datetime.replace(second=0, microsecond=0)
                 cutoff_datetime = last_datetime
-                #print('cache datetime available', cutoff_datetime)  
+                print('cache datetime available', cutoff_datetime)  
             else:
-                #print('no cache')
+                print('no cache')
                 last_datetime = datetime.today() - timedelta(days=90)
                 last_datetime = last_datetime.replace(hour=9, minute=15, second=0, microsecond=0)
                 cutoff_datetime = last_datetime
@@ -232,12 +238,13 @@ async def download(tpl_stocks, interval):
                 if exptime > end_date_today:
                     print(f'skipping {exptime=}', instrument_token)
                     continue
+            print(f"{exchange_code} {last_datetime=}, {end_date_today=}")
             status, data, Error = await get_data_zerodha_recursive_list(interval, last_datetime, end_date_today, instrument_token, exchange_code)
-            print(f"{status=}")
+            #print(f"{status=}")
         except Exception as e:
             if log == True:
                 print('Error in downloading', exchange_code, e)
-                await db.pre_process_logs(today_str, 'gethistorical_cash', 'Error downloading', '', 3)
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'Error downloading', exchange_code, 3)
             result = -1
 
         if status == 1 and len(data) > 0:
@@ -250,6 +257,7 @@ async def download(tpl_stocks, interval):
             if log == True:
                 await db.pre_process_logs(today_str, 'gethistorical_cash', 'download using history api', 'len data = 0', 1)
             print('no data skipping processing')
+            await asyncio.sleep(0.25)
             continue
         if result == -1:
             if log == True:
@@ -257,6 +265,7 @@ async def download(tpl_stocks, interval):
             if exchange_code not in disabled_symbols:
                 disabled_symbols.append(exchange_code)
             print('Error getting data skipping processing')
+            await asyncio.sleep(0.25)
             continue
         if status == 0:
             if Error == 'invalid token':
@@ -264,8 +273,9 @@ async def download(tpl_stocks, interval):
                     disabled_symbols.append(exchange_code)
                 await db.run_query(f"update monitor_symbols set active = 0 where symbol = '{exchange_code}'")
             if log == True:
-                await db.pre_process_logs(today_str, 'gethistorical_cash', 'invalid token', '', 4)
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'invalid token', exchange_code, 4)
             print('invalid token skipping processing')
+            await asyncio.sleep(0.25)
             continue        
         #print('data', data[0:50])
         dates_new = []
@@ -274,7 +284,7 @@ async def download(tpl_stocks, interval):
         highs = [entry['high'] for entry in data]
         lows = [entry['low'] for entry in data]
         closes = [entry['close'] for entry in data]
-        volumes = [entry['volume'] for entry in data]
+        #volumes = [entry['volume'] for entry in data]
 
         if cutoff_datetime in dates_new:
             index = dates_new.index(cutoff_datetime)
@@ -284,9 +294,9 @@ async def download(tpl_stocks, interval):
             highs = highs[index+1:]
             lows = lows[index+1:]
             closes = closes[index+1:]
-            volumes = volumes[index+1:]
+            #volumes = volumes[index+1:]
         else:
-            print(f"{cutoff_datetime} not found in the list.")
+            print(f"cutoff_datetime: {cutoff_datetime} not found in the list.")
 
         dates_combined = dates_new
         if len(dates_list_old) > 0:
@@ -298,7 +308,7 @@ async def download(tpl_stocks, interval):
         data_np_new[:,1] = np.array(highs)
         data_np_new[:,2] = np.array(lows)
         data_np_new[:,3] = np.array(closes)
-        data_np_new[:,4] = np.array(volumes)
+        #data_np_new[:,4] = np.array(volumes)
         if len(data_np_new) == 0:
             print('No Data to process skipping')
             continue
@@ -345,77 +355,94 @@ async def download(tpl_stocks, interval):
             high_val = data_combined[i,1]
             low_val = data_combined[i,2]
             close_val = data_combined[i,3]
-            volume_val = data_combined[i,4]
+            #volume_val = data_combined[i,4]
             ha_open_val = ha_open[i]
             ha_high_val = ha_high[i]
             ha_low_val = ha_low[i]
             ha_close_val = ha_close[i]
-            batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val, ha_open_val, ha_high_val, ha_low_val, ha_close_val))
-        
+            batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, ha_open_val, ha_high_val, ha_low_val, ha_close_val))
+            #print('batch_data', batch_data)
+            tasks = []
             if len(batch_data) >= BATCH_SIZE:
-                print('insert_batch_data partial', exchange_code)
-                #await db.insert_batch_data(table_name, batch_data)
-                asyncio.create_task(db.insert_batch_data(table_name, batch_data))  # Run insert in background
+                current_time = datetime.now().strftime("%H:%M:%S")
+                print('insert_batch_data partial',current_time, ':', exchange_code)
+                if table_name == 'one_min_ohlc':
+                    print('in if one_min_ohlc')
+                    #asyncio.create_task(db.Insert_one_min_ohlc_proc_batch(batch_data))
+                    task = asyncio.create_task(db.Insert_one_min_ohlc_proc_batch(batch_data))
+                    tasks.append(task)
+                    #await db.Insert_one_min_ohlc_proc_batch(batch_data)
+                else:
+                    asyncio.create_task(db.insert_batch_data(table_name, batch_data))  # Run insert in background
                 batch_data = []
 
         if batch_data:
-            print('insert_batch_data final', exchange_code)
-            #print(batch_data)
-            asyncio.create_task(db.insert_batch_data(table_name, batch_data))  # Run insert in background
+            current_time = datetime.now().strftime("%H:%M:%S")
+            print('insert_batch_data partial',current_time, ':', exchange_code)
+            if table_name == 'one_min_ohlc':
+                task = asyncio.create_task(db.Insert_one_min_ohlc_proc_batch(batch_data))
+                tasks.append(task)
+                #await db.Insert_one_min_ohlc_proc_batch(batch_data)
+            else:
+                asyncio.create_task(db.insert_batch_data(table_name, batch_data))  # Run insert in background
             #await db.insert_batch_data(table_name, batch_data)
         else:
             print('no batch_data', exchange_code)
-        (lrc_period, lrc_stdev) = lrc_settings[0]
+        print('done ', exchange_code)
+        await asyncio.gather(*tasks)
+        #break
 
-        if len(data_combined[:,3]) >= lrc_period:
-            await db.run_query(f"update {table_name} set LRL = NULL, UCL = NULL, LCL = NULL where symbol = '{exchange_code}' and LRL is not NULL;")
-            LRL, UCL, LCL = linear_regression_channel_numba(data_combined[:,3], lrc_period, lrc_stdev)
-            signal_len = len(LRL)
-            last_n_dates = dates_combined[-signal_len:]
-            batch_data = []
-            for i in range(len(last_n_dates)):
-                date_val = last_n_dates[i]
-                python_time = date_val.time()
-                is_within_range = start_time <= python_time <= end_time
-                if is_within_range == False:
-                    print(f'Time beyond range {date_val}')
-                    continue
-                LRL_val = round(LRL[i], 4)
-                UCL_val = round(UCL[i], 4)
-                LCL_val = round(LCL[i], 4)
-                batch_data.append((LRL_val, UCL_val, LCL_val, exchange_code, date_val))
-            if len(batch_data) > 0:
-                asyncio.create_task(db.update_LRC_batch(batch_data, table_name))  # Run insert in background
+        # ----------------------- indicator Processing ------------------
+        # (lrc_period, lrc_stdev) = lrc_settings[0]
+        # if len(data_combined[:,3]) >= lrc_period:
+        #     await db.run_query(f"update {table_name} set LRL = NULL, UCL = NULL, LCL = NULL where symbol = '{exchange_code}' and LRL is not NULL;")
+        #     LRL, UCL, LCL = linear_regression_channel_numba(data_combined[:,3], lrc_period, lrc_stdev)
+        #     signal_len = len(LRL)
+        #     last_n_dates = dates_combined[-signal_len:]
+        #     batch_data = []
+        #     for i in range(len(last_n_dates)):
+        #         date_val = last_n_dates[i]
+        #         python_time = date_val.time()
+        #         is_within_range = start_time <= python_time <= end_time
+        #         if is_within_range == False:
+        #             print(f'Time beyond range {date_val}')
+        #             continue
+        #         LRL_val = round(LRL[i], 4)
+        #         UCL_val = round(UCL[i], 4)
+        #         LCL_val = round(LCL[i], 4)
+        #         batch_data.append((LRL_val, UCL_val, LCL_val, exchange_code, date_val))
+        #     if len(batch_data) > 0:
+        #         asyncio.create_task(db.update_LRC_batch(batch_data, table_name))  # Run insert in background
 
         # PSAR Calculations
-        if len(data_combined[:,3]) >= 45:
-            (acceleration, max_acceleration) = psar_settings[0]
-            psar_values = psar(data_combined[:,1], data_combined[:,2], data_combined[:,3], af0=float(acceleration), af=float(acceleration), max_af=float(max_acceleration))
-            signals = get_signals(data_combined[:,3], psar_values)
-            batch_data = []
-            for i in range(index_start + 1, len(dates_combined)):
-                date_val = dates_combined[i]
-                python_time = date_val.time()
-                is_within_range = start_time <= python_time <= end_time
-                if is_within_range == False:
-                    print(f'Time beyond range {date_val}')
-                    continue
-                PSAR = psar_values[i]
-                signal = signals[i]
-                PSAR_L = PSAR_S = None
+        # if len(data_combined[:,3]) >= 45:
+        #     (acceleration, max_acceleration) = psar_settings[0]
+        #     psar_values = psar(data_combined[:,1], data_combined[:,2], data_combined[:,3], af0=float(acceleration), af=float(acceleration), max_af=float(max_acceleration))
+        #     signals = get_signals(data_combined[:,3], psar_values)
+        #     batch_data = []
+        #     for i in range(index_start + 1, len(dates_combined)):
+        #         date_val = dates_combined[i]
+        #         python_time = date_val.time()
+        #         is_within_range = start_time <= python_time <= end_time
+        #         if is_within_range == False:
+        #             print(f'Time beyond range {date_val}')
+        #             continue
+        #         PSAR = psar_values[i]
+        #         signal = signals[i]
+        #         PSAR_L = PSAR_S = None
 
-                if signal == 1:
-                    PSAR_L = 1
-                elif signal == -1:
-                    PSAR_S = 1
+        #         if signal == 1:
+        #             PSAR_L = 1
+        #         elif signal == -1:
+        #             PSAR_S = 1
 
-                batch_data.append((PSAR, PSAR_L, PSAR_L, PSAR_S, PSAR_S, exchange_code, date_val))
+        #         batch_data.append((PSAR, PSAR_L, PSAR_L, PSAR_S, PSAR_S, exchange_code, date_val))
 
-            if len(batch_data) > 0:
-                #print('---------------------PSAR--------', batch_data)
-                asyncio.create_task(db.update_PSAR_batch(batch_data, table_name))  
-        else:
-            print('--------------------PSAR skipped len close 45 ')
+        #     if len(batch_data) > 0:
+        #         #print('---------------------PSAR--------', batch_data)
+        #         asyncio.create_task(db.update_PSAR_batch(batch_data, table_name))  
+        # else:
+        #     print('--------------------PSAR skipped len close 45 ')
 async def main():
     global db, lrc_settings, psar_settings
     loop = asyncio.get_event_loop()
@@ -423,36 +450,47 @@ async def main():
     # Get indicator settings
     lrc_settings = await db.get_lrc_settings()
     psar_settings = await db.get_psar_settings()
-
     # Prepare List of symbols to process
     priority_stocks_tpl = await db.get_priority_instruments_to_trade()
-    non_priority_stocks_tpl = await db.get_non_priority_instruments_to_trade()
+    #print('priority_stocks_tpl', priority_stocks_tpl)
+    #non_priority_stocks_tpl = await db.get_non_priority_instruments_to_trade()
 
     # Cache Data of all interval tables for fast processing
     global data_collections, dates_collections
     for interval, table_name in interval_to_table.items():
-        #print(f"{interval=}, {table_name=}")
+        print(f"{interval=}, {table_name=}")
+        if interval !='minute':
+            continue
         prvdata = await db.get_old_data(table_name) # already in ascending order    
         for s_value, group_df in prvdata.groupby('symbol'):
+            # if s_value != 'NIFTY24JUL24050CE':
+            #     continue
             group_df = group_df.tail(50)
-            ohlc_np = group_df[['open', 'high', 'low', 'close', 'volume']].values.astype(float)
+            ohlc_np = group_df[['open', 'high', 'low', 'close']].values.astype(float)
             data_collections[interval][s_value] = ohlc_np
             group_df['datetime'] = pd.to_datetime(group_df['datetime'])
             datetime_list = group_df['datetime'].tolist()
             dates_collections[interval][s_value] = datetime_list
-
+    # print('dates_collections', dates_collections['minute']['NIFTY24JUL24050CE'])
+    # return
     start_time = time.time()
     for interval, table_name in interval_to_table.items():
         print(f"{interval=}, {table_name=}")
-        if interval != 'minute':
+        if interval=='2minute':
+            continue
+        if interval == 'minute':
             await download(priority_stocks_tpl, interval)
-            await download(non_priority_stocks_tpl, interval)
+            #await download(non_priority_stocks_tpl, interval)
             break
     end_time = time.time()  
     total_time = end_time - start_time
     print(f"------------------------Total time taken to execute the code: {total_time:.2f} seconds")
-
+    
+    current_time = datetime.now().strftime("%H:%M:%S")
+    print('before sleep',current_time)
     await asyncio.sleep(20)
+    current_time = datetime.now().strftime("%H:%M:%S")
+    print('after sleep',current_time)
     await db.close_pool()   
 if __name__ == '__main__':
     loop = asyncio.get_event_loop()

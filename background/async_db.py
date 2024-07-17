@@ -4,8 +4,7 @@ import pandas as pd
 import time
 from background.set import settings
 import numpy as np
-from pymysql.err import OperationalError
-
+from datetime import datetime
 
 class dbconnection:
     def __init__(self):
@@ -248,12 +247,187 @@ class dbconnection:
             async with self.pool.acquire() as conn:
                 async with conn.cursor() as cur:
                     await cur.executemany(
-                        f"INSERT IGNORE INTO {table_name} (symbol, datetime, open, high, low, close, volume, ha_open, ha_high, ha_low, ha_close) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                        f"INSERT IGNORE INTO {table_name} (symbol, datetime, open, high, low, close, ha_open, ha_high, ha_low, ha_close) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                         batch_data
                     )
                     await conn.commit()
         except Exception as e:
             raise e
+
+    # async def Insert_one_min_ohlc_proc_batch(self, batch_data):
+    #     current_time = datetime.now().strftime("%H:%M:%S")
+    #     print('in Insert_one_min_ohlc_proc_batch', current_time)
+    #     try:
+    #         async with self.pool.acquire() as conn:
+    #             async with conn.cursor() as cur:
+    #                 await cur.executemany(
+    #                     "CALL Insert_one_min_ohlc(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+    #                     batch_data
+    #                 )
+    #                 await conn.commit()
+    #     except Exception as e:
+    #         raise e
+
+    async def Insert_one_min_ohlc_proc_batch(self, batch_data, max_retries=5):
+        retry_count = 0
+        while retry_count < max_retries:
+            try:
+                async with self.pool.acquire() as conn:
+                    async with conn.cursor() as cur:
+                        await cur.executemany(
+                            "CALL Insert_one_min_ohlc(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                            batch_data
+                        )
+                        await conn.commit()
+                return
+            except aiomysql.OperationalError as e:
+                if e.args[0] == 1213:  # Error code for deadlock
+                    retry_count += 1
+                    await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
+                else:
+                    raise
+        raise Exception(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
+
+    async def Insert_three_min_ohlc_proc_batch(self, batch_data, max_retries=5):
+        retry_count = 0
+        while retry_count < max_retries:
+            try:
+                async with self.pool.acquire() as conn:
+                    async with conn.cursor() as cur:
+                        await cur.executemany(
+                            "CALL Insert_three_min_ohlc(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                            batch_data
+                        )
+                        await conn.commit()
+                return
+            except aiomysql.OperationalError as e:
+                if e.args[0] == 1213:  # Error code for deadlock
+                    retry_count += 1
+                    await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
+                else:
+                    raise
+        raise Exception(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
+
+    async def Insert_two_min_ohlc_proc_batch(self, batch_data, max_retries=5):
+        retry_count = 0
+        while retry_count < max_retries:
+            try:
+                async with self.pool.acquire() as conn:
+                    async with conn.cursor() as cur:
+                        await cur.executemany(
+                            "CALL Insert_two_min_ohlc(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                            batch_data
+                        )
+                        await conn.commit()
+                return
+            except aiomysql.OperationalError as e:
+                if e.args[0] == 1213:  # Error code for deadlock
+                    retry_count += 1
+                    await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
+                else:
+                    raise
+        raise Exception(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
+
+    async def Insert_five_min_ohlc_proc_batch(self, batch_data, max_retries=5):
+        retry_count = 0
+        while retry_count < max_retries:
+            try:
+                async with self.pool.acquire() as conn:
+                    async with conn.cursor() as cur:
+                        await cur.executemany(
+                            "CALL Insert_five_min_ohlc(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                            batch_data
+                        )
+                        await conn.commit()
+                return
+            except aiomysql.OperationalError as e:
+                if e.args[0] == 1213:  # Error code for deadlock
+                    retry_count += 1
+                    await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
+                else:
+                    raise
+        raise Exception(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
+
+    async def Insert_ten_min_ohlc_proc_batch(self, batch_data, max_retries=5):
+        retry_count = 0
+        while retry_count < max_retries:
+            try:
+                async with self.pool.acquire() as conn:
+                    async with conn.cursor() as cur:
+                        await cur.executemany(
+                            "CALL Insert_ten_min_ohlc(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                            batch_data
+                        )
+                        await conn.commit()
+                return
+            except aiomysql.OperationalError as e:
+                if e.args[0] == 1213:  # Error code for deadlock
+                    retry_count += 1
+                    await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
+                else:
+                    raise
+        raise Exception(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
+
+    async def Insert_fifteen_min_ohlc_proc_batch(self, batch_data, max_retries=5):
+        retry_count = 0
+        while retry_count < max_retries:
+            try:
+                async with self.pool.acquire() as conn:
+                    async with conn.cursor() as cur:
+                        await cur.executemany(
+                            "CALL fifteen_min_ohlc(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                            batch_data
+                        )
+                        await conn.commit()
+                return
+            except aiomysql.OperationalError as e:
+                if e.args[0] == 1213:  # Error code for deadlock
+                    retry_count += 1
+                    await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
+                else:
+                    raise
+        raise Exception(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
+    
+    async def Insert_thirty_min_ohlc_proc_batch(self, batch_data, max_retries=5):
+        retry_count = 0
+        while retry_count < max_retries:
+            try:
+                async with self.pool.acquire() as conn:
+                    async with conn.cursor() as cur:
+                        await cur.executemany(
+                            "CALL Insert_thirty_min_ohlc(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                            batch_data
+                        )
+                        await conn.commit()
+                return
+            except aiomysql.OperationalError as e:
+                if e.args[0] == 1213:  # Error code for deadlock
+                    retry_count += 1
+                    await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
+                else:
+                    raise
+        raise Exception(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
+
+    async def Insert_hour_ohlc_proc_batch(self, batch_data, max_retries=5):
+        retry_count = 0
+        while retry_count < max_retries:
+            try:
+                async with self.pool.acquire() as conn:
+                    async with conn.cursor() as cur:
+                        await cur.executemany(
+                            "CALL Insert_hour_ohlc(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                            batch_data
+                        )
+                        await conn.commit()
+                return
+            except aiomysql.OperationalError as e:
+                if e.args[0] == 1213:  # Error code for deadlock
+                    retry_count += 1
+                    await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
+                else:
+                    raise
+        raise Exception(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
+
 
     # async def insert_batch_data(self, table_name, batch_data):
     #     MAX_RETRIES = 5  # Maximum number of retries
@@ -287,7 +461,7 @@ class dbconnection:
     async def get_old_data(self, table_name):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute(f"Select symbol, datetime, open, high, low, close, volume FROM {table_name} ORDER BY id DESC LIMIT 80000;")
+                await cur.execute(f"Select symbol, datetime, open, high, low, close FROM {table_name} ORDER BY id DESC")
                 data = await cur.fetchall()
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
@@ -304,7 +478,16 @@ class dbconnection:
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
         return df
-    
+
+    async def get_lastdate_symbols_all(self, table_name):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(f"SELECT symbol, max(datetime) as datetime FROM {table_name} group by symbol;")
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df
+
     async def insert_one_min_ohlc(self, symbol, datetime, open, high, low, close, volume):
         try:
             async with self.pool.acquire() as conn:
@@ -643,13 +826,22 @@ class dbconnection:
     async def get_monitor_symbols_to_trade(self):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                query = f"SELECT symbol FROM monitor_symbols where active = 1;"
+                #query = f"SELECT symbol FROM monitor_symbols where active = 1;"
+                query = f"SELECT m.instrument_token, m.symbol FROM monitor_symbols m left join instruments i on m.instrument_token = i.instrument_token where m.active = 1 and i.expiry >= curdate();"
                 await cur.execute(query)
                 data = await cur.fetchall()
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
         return df  
 
+    async def get_instrument_tokens(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT m.instrument_token, m.symbol FROM monitor_symbols m left join instruments i on m.instrument_token = i.instrument_token where m.active = 1 and i.expiry >= curdate();"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        return data
+    
     async def get_priority_instruments_to_trade(self):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
@@ -657,6 +849,8 @@ class dbconnection:
                 await cur.execute(query)
                 data = await cur.fetchall()
         return data
+    
+    
 
     async def get_non_priority_instruments_to_trade(self):
         async with self.pool.acquire() as conn:

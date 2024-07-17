@@ -33,7 +33,7 @@ class zeroda():
             df = pd.DataFrame(records)
             return df
         except Exception as e:
-            # Log Error 
+            print(f"{token=}, {from_date=}, {to_date=}, {interval=}")
             print("Error getting Data: {}".format(e))
             df = pd.DataFrame()
             # --------Return Error Code instead of blank dataframe
@@ -47,17 +47,18 @@ class zeroda():
             df = pd.DataFrame(records)
             return 1, df, None
         except Exception as e:
-            # Log Error 
+            print(f"{token=}, {from_date=}, {to_date=}, {interval=}")
             print("Error getting Data: {}".format(e))
             return 0, None, e
 
     def gethistoricaldata_v3(self, token, from_date, to_date, interval):
-        #print(f"gethistoricaldata_v2 {from_date=}, {to_date=}")
         try:
             records = self.kite.historical_data(token, from_date=from_date, to_date=to_date, interval=interval)
+            #print(f"{records=}")
             #df = pd.DataFrame(records)
             return 1, records, None
         except Exception as e:
+            print(f"{token=}, {from_date=}, {to_date=}, {interval=}")
             print("Error getting Data: {}".format(e))
             return 0, None, e
 

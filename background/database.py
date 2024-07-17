@@ -33,7 +33,7 @@ class DBHelper:
         return df
     def get_credentials(self):
         con = sqlConnector.connect(host=self.server, user=self.user, passwd=self.passwd, database=self.database, port=self.port, auth_plugin='mysql_native_password')
-        df = pd.read_sql("SELECT * FROM credentials;", con=con)
+        df = pd.read_sql("SELECT * FROM algo.credentials;", con=con)
         con.close()
         return df
     
