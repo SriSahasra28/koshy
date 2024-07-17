@@ -243,6 +243,7 @@ class dbconnection:
         except Exception as e:
             raise e
     async def insert_batch_data(self, table_name, batch_data):
+        print('batch_data', batch_data)
         try:
             async with self.pool.acquire() as conn:
                 async with conn.cursor() as cur:

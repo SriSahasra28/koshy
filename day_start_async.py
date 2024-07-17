@@ -367,13 +367,13 @@ async def download_ohlc_2min(df_all_stocks):
                 high_val = row['high']
                 low_val = row['low']
                 close_val = row['close']
-                volume_val = 0#row['volume']  
+                #volume_val = 0#row['volume']  
                 ha_open = row['ha_open']
                 ha_high = row['ha_high']
                 ha_low = row['ha_low']
                 ha_close = row['ha_close']
 
-                batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val, ha_open, ha_high, ha_low, ha_close))
+                batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, ha_open, ha_high, ha_low, ha_close))
 
                 if len(batch_data) >= BATCH_SIZE:
                     await db.insert_batch_data(table_name, batch_data)
