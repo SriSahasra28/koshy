@@ -249,14 +249,14 @@ class Start(object):
                     high_val = row['high']
                     low_val = row['low']
                     close_val = row['close']
-                    volume_val = 0
+                    #volume_val = 0
                     ha_open = row['ha_open']
                     ha_high = row['ha_high']
                     ha_low = row['ha_low']
                     ha_close = row['ha_close']
                     
                     print(f"{date_val=} {ha_open=} {ha_close=}")
-                    batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val, ha_open, ha_high, ha_low, ha_close))
+                    batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, ha_open, ha_high, ha_low, ha_close))
                     
                     if len(batch_data) >= BATCH_SIZE:
                         await self.db.insert_batch_data(table_name, batch_data)
