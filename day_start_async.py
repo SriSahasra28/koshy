@@ -689,7 +689,7 @@ async def download_ohlc_v2(df_all_stocks, interval):
             elif table_name == 'thirty_min_ohlc':
                 task = asyncio.create_task(db.Insert_thirty_min_ohlc_proc_batch(batch_data))
                 tasks.append(task)
-            elif table_name == 'hour_ohlc':
+            elif table_name == 'one_hour_ohlc':
                 task = asyncio.create_task(db.Insert_hour_ohlc_proc_batch(batch_data))
                 tasks.append(task)
             else:
