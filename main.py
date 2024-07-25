@@ -876,8 +876,9 @@ class Start(object):
         await self.download_ohlc_v2(self.df_priority_stocks, interval)
         #await self.process_indicators_one_min(self.df_priority_stocks)
         
-        await self.download_two_min(self.df_priority_stocks, current_datetime)
-        #await self.process_indicators_two_min(self.df_priority_stocks)
+        if current_datetime.minute % 2 == 0:
+            await self.download_ohlc_2min(self.df_priority_stocks, current_datetime)
+            #await self.process_indicators_two_min(self.df_priority_stocks)
 
         if current_datetime.minute % 3 == 0:
             await self.download_ohlc_v2(self.df_priority_stocks, '3minute')
