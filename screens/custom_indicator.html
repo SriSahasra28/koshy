@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Custom Indicator</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .accordion-like {
+            border: 1px solid #dee2e6;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .title-cn {
+            background-color: #f8f9fa;
+            border-radius: 10px 10px 0 0;
+            padding: 15px;
+            margin: -15px -15px 0 -15px;
+        }
+        .body-cn {
+            display: flex;
+            background-color: #ffffff;
+            border-radius: 0 0 10px 10px;
+            padding: 15px;
+        }
+        .left-panel {
+            background-color: #f8f9fa;
+            border-radius: 10px 0 0 10px;
+            width: 25%;
+            padding: 15px;
+        }
+        .right-panel {
+            background-color: #ffffff;
+            border-radius: 0 10px 10px 0;
+            width: 75%;
+            padding: 15px;
+        }
+        .scan-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .scan-item i {
+            cursor: pointer;
+        }
+        .form-inline .form-control, 
+        .form-inline .btn,
+        .form-inline label {
+            margin-right: 20px;
+        }
+        .form-inline label {
+            margin-left: 10px;
+        }
+        .form-inline .btn {
+            margin-right: 0;
+        }
+        .row-4 {
+            display: flex;
+            align-items: center;
+        }
+        .row-4 > *:not(:last-child) {
+            margin-right: 10px;
+        }
+    </style>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+</head>
+<body>
+
+<div class="container mt-5">
+    <div class="accordion-like">
+        <div class="title-cn">
+            CI
+        </div>
+        <div class="body-cn">
+            <div class="left-panel">
+                <div class="scan-item">
+                    <span>LRC-1</span>
+                    <span>
+                        <i class="fas fa-edit"></i>
+                        <i class="fas fa-trash-alt"></i>
+                    </span>
+                </div>
+                <div class="scan-item">
+                    <span>PSAR-1</span>
+                    <span>
+                        <i class="fas fa-edit"></i>
+                        <i class="fas fa-trash-alt"></i>
+                    </span>
+                </div>
+                <div class="scan-item">
+                    <span>MACD-1</span>
+                    <span>
+                        <i class="fas fa-edit"></i>
+                        <i class="fas fa-trash-alt"></i>
+                    </span>
+                </div>
+                
+            </div>
+                
+            <div class="right-panel">
+                <div class="form-group form-inline">
+                    <label for="groupSelect">Indicator</label>
+                    <select class="form-control" id="groupSelect">
+                        <option>Linear Regression Channel</option>
+                        <option>PSAR</option>
+                        <option>MACD</option>
+                        <option>Fast Stochastics</option>
+                    </select>
+                    <input type="text" class="form-control" id="value_input" value="100, 2">
+                </div>
+                <div class="row-4">
+                    <label for="nameInput" style="margin-left: 10px;">Name</label>
+                    <input type="text" class="form-control" id="nameInput" value="Scan-1" style="max-width: 200px;margin-left: 30px;">
+                    <button class="btn btn-success">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bootstrap JS and dependencies -->
+<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.4/dist/umd/popper.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+</body>
+</html>

@@ -479,6 +479,27 @@ class dbconnection:
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
         return df
+    
+    async def get_old_data_limit(self, table_name):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(f"Select symbol, datetime, open, high, low, close FROM {table_name} ORDER BY datetime DESC LIMIT 1000000;")
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        if len(df) > 0:
+            df = df[::-1] # reverse as its desc order
+            df = df.sort_values(by='datetime')
+        return df
+    
+    async def get_old_data_priority(self, table_name):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(f"Select symbol, datetime, open, high, low, close from {table_name} where symbol in (SELECT m.symbol FROM monitor_symbols m left join instruments i on m.instrument_token = i.instrument_token where m.active = 1 and i.expiry >= curdate() and m.stock_symbol in (SELECT distinct symbol FROM basket_stocks where active = 1)) ORDER BY datetime;")
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df
 
     async def get_lastdate_symbols_all(self, table_name):
         async with self.pool.acquire() as conn:

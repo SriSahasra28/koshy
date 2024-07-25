@@ -81,8 +81,6 @@ class Start(object):
         self.end_date_today = datetime.today().replace(hour=15, minute=30, second=0, microsecond=0)
         self.start_time_trans = tm(9, 15)
         self.end_time_trans = tm(15, 30)
-        self.df_priority_stocks = None
-        self.zerodha_last_trans = None
     async def start_pool(self):
         print('start pool')
         loop = asyncio.get_event_loop()
@@ -90,7 +88,56 @@ class Start(object):
     
     async def close_pool(self):
         await self.db.close_pool()
+
+
     
+    async def get_data_zerodha_recursive(self, interval, from_date, edate, symbol):
+        if not isinstance(from_date, datetime):
+            from_date = datetime.combine(from_date, tm(9, 15, 0))
+
+        if not isinstance(edate, datetime):
+            edate = datetime.combine(edate, tm(15, 30, 0))
+        df_instrument = await self.db.get_instrument_token(symbol)
+        if len(df_instrument) == 0:
+            info = f"instrument token not found {symbol}"
+            print(info)
+            return pd.DataFrame()
+        token = int(df_instrument.instrument_token.iloc[0])
+        to_date = edate
+        data_frames = []  # List to store DataFrames
+        days = 5
+        print(f"{from_date=} {edate=}")
+        while from_date < edate:
+            if from_date >= (edate - timedelta(days)):
+                print('in if');
+                df = self.zerodha.gethistoricaldata(token, from_date.date(), edate.date(), interval)
+                if len(df) == 0:
+                    print('if len df 0 break')
+                    break
+                else:
+                    print('append if')
+                    data_frames.append(df)
+                break
+            else:
+                print('in else');
+                to_date = from_date + timedelta(days)
+                print(f"{from_date=}, {to_date=}")
+                df = self.zerodha.gethistoricaldata(token, from_date.date(), to_date.date(), interval)
+                if len(df) == 0:
+                    print('else len df 0 break')
+                    #break
+                else:
+                    print('append else')
+                    data_frames.append(df)
+                from_date = to_date
+        if data_frames:
+            data = pd.concat(data_frames, ignore_index=True)
+            return data
+        else:
+            print("No data frames to concatenate")
+            data = pd.DataFrame() 
+            return data 
+
     async def get_data_zerodha_recursive_list(self, interval, from_date, edate, token, symbol):
         print(f" ---------- in get_data_zerodha_recursive_list {symbol} {interval} {from_date=} {edate=}")
         to_date = edate
@@ -292,7 +339,6 @@ class Start(object):
             count_iter = count_iter + 1
             BATCH_SIZE = 1000
             batch_data = []
-            tasks = []
             total_count = len(dates_combined)
             for i in range(index_start + 1, total_count):
                 date_val = dates_combined[i]
@@ -311,7 +357,7 @@ class Start(object):
                 ha_close_val = ha_close[i]
                 batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, ha_open_val, ha_high_val, ha_low_val, ha_close_val))
                 print('batch_data', len(batch_data))
-                
+                tasks = []
                 if len(batch_data) >= BATCH_SIZE:
                     if table_name == 'one_min_ohlc':
                         task = asyncio.create_task(self.db.Insert_one_min_ohlc_proc_batch(batch_data))
@@ -368,6 +414,32 @@ class Start(object):
 
         return 1, error, count_iter
 
+    async def get_data_zerodha(self, interval, sdate, edate, symbol):
+        df_instrument = await self.db.get_instrument_token(symbol)
+        if len(df_instrument) == 0:
+            info = f"instrument token not found {symbol}"
+            print(info)
+            return pd.DataFrame()
+        token = int(df_instrument.instrument_token.iloc[0])
+        global log
+        for retry in range(2):
+            data = self.zerodha.gethistoricaldata(token, sdate, edate, interval)
+            if len(data) > 0:
+                if self.log == True:
+                    print(f"Data Received in {retry} try")
+                break  
+            else:
+                print(f'unable to get data {retry} of 2 {interval}, sdate:{sdate}, {edate}, {symbol}')
+
+                asyncio.sleep(1) 
+        if len(data) < 2:
+            if self.log == True:
+                print("Unable to fetch data after multiple retries.")
+            return data
+        else:
+            if self.log == True:
+                print('return new data')
+            return data
     async def pine_ema(self, src, length):
         alpha = 2 / (length + 1)
         ema_values = []
@@ -432,61 +504,35 @@ class Start(object):
         await self.process_min_PSAR(df, '60minute')
         return 1
 
-    async def download_ohlc_2min(self, df_all_stocks):
+    async def download_two_min(self, df_stocks, current_datetime):
+        print('download_two_min')
         table_name = 'two_min_ohlc'
-        interval = '2minute'
-        global last_working_day
-        last_working_day_str = last_working_day.strftime('%d-%m-%Y')
-        count = 0
-        end_date_now = datetime.now().replace(second=0, microsecond=0)
-        for index, row in df_all_stocks.iterrows():
-            exchange_code = row['symbol']
-            last_datetime = None
-            # Get Last datetime for the symbol in from cache
-            if exchange_code in self.dates_collections[interval]:
-                last_datetime = cutoff_datetime = self.dates_collections[interval][exchange_code][-1].replace(second=0, microsecond=0)
-                print('cache datetime available', cutoff_datetime)  
-            else:
-                print('no cache')
-                last_datetime = datetime.today() - timedelta(days=90)
-                last_datetime = last_datetime.replace(hour=9, minute=15, second=0, microsecond=0)
-                cutoff_datetime = last_datetime
-
-            if isinstance(last_datetime, pd.Timestamp):
-                last_datetime = last_datetime.to_pydatetime()
-            
-            if isinstance(cutoff_datetime, pd.Timestamp):
-                cutoff_datetime = cutoff_datetime.to_pydatetime()
-            
-            if cutoff_datetime >= end_date_now:
-                info = f"skipping cutoff_datetime:{cutoff_datetime} >= end_date_now:{end_date_now} {exchange_code}"
-                await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_2min', activity='skip process', important_data=info, priority=1, strategy_trade_id = '', timestamp=end_date_now)
-                continue
+        missed_df = pd.DataFrame(columns=['symbol', 'exchange_code'])
+        enddate = current_datetime
         
-            result = 0
+        for index, row in df_stocks.iterrows():
+            exchange_code = row['symbol']
+            print(exchange_code)
+            df_last_date = await self.db.get_ohlc_last_datetime(exchange_code, table_name)
+            if len(df_last_date) == 0:
+                days_prior = self.yesterday - timedelta(days=90)
+                startdate = days_prior
+            else:
+                last_date = df_last_date.datetime.iloc[0]
+                if last_date.date() < enddate.date():
+                    startdate = last_date + timedelta(days=1)
+                    startdate = startdate.replace(hour=9, minute=15)
+                else:
+                    startdate = last_date# + timedelta(minutes=5)
+                print(f"{last_date=} {startdate=}")
             df = ""
-            try:
-                if self.log == True:
-                    print('get_one_min_datetime', exchange_code)
-                dates_list_one_min = []
-                data_one_min = []
-                if exchange_code in self.dates_collections['minute']:
-                    dates_list_one_min = self.dates_collections['minute'][exchange_code]
-                    data_one_min = self.data_collections['minute'][exchange_code]
-                df = pd.DataFrame(data_one_min, columns=['open', 'high', 'low', 'close'], index=dates_list_one_min)
-                #df = await db.get_one_min_datetime(exchange_code, startdate, last_working_day)
-                result = 1
-            except Exception as e:
-                if self.log == True:
-                    info = f"Error in getting 1 min data from cache {exchange_code} {e}"
-                    await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_2min', activity='error get 1min', important_data=info, priority=4, strategy_trade_id = '', timestamp=end_date_now)
-                continue
-            if len(df) == 0:
-                if self.log == True:
-                    info = 'skip len df == 0'
-                    await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_2min', activity='len 1mindata =0', important_data=info, priority=4, strategy_trade_id = '', timestamp=end_date_now)
-                continue
-            
+
+            #df = await self.get_data_zerodha('minute', startdate, enddate, exchange_code)
+            df = await self.db.get_one_min_datetime(exchange_code, startdate, datetime.now())
+            df['datetime'] = pd.to_datetime(df['datetime'])
+            df.set_index('datetime', inplace=True)
+
+            # Resample to 2-minute OHLC DataFrame
             df = df.resample('2T').agg({
                 'open': 'first',
                 'high': 'max',
@@ -495,59 +541,386 @@ class Start(object):
             })
             df.dropna(inplace=True)
             if len(df) == 0:
-                info = 'skip len df after resample == 0'
-                await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_2min', activity='len df =0', important_data=info, priority=4, strategy_trade_id = '', timestamp=end_date_now)
                 continue
-            df.reset_index(inplace=True, names="datetime")
+            data = ta.candles.ha(df['open'], df['high'], df['low'], df['close'])
+            if len(data) > 0:
+                df['ha_open'] = data['HA_open'].astype(float).round(2)
+                df['ha_high'] = data['HA_high'].astype(float).round(2)
+                df['ha_low'] = data['HA_low'].astype(float).round(2)
+                df['ha_close'] = data['HA_close'].astype(float).round(2)
+                df.dropna(inplace=True)
+                df.reset_index(inplace=True)
 
-            ha_open, ha_high, ha_low, ha_close = heikin_ashi_numpy(df['open'].to_list(), df['high'].to_list(), df['low'].to_list(), df['close'].to_list())
+                BATCH_SIZE = 1000
+                batch_data = []
 
-            df['ha_open'] = ha_open
-            df['ha_high'] = ha_high
-            df['ha_low'] = ha_low
-            df['ha_close'] = ha_close
+                for index, row in df.iterrows():
+                    date_val = row['datetime']
+                    open_val = row['open']
+                    high_val = row['high']
+                    low_val = row['low']
+                    close_val = row['close']
+                    #volume_val = 0
+                    ha_open = row['ha_open']
+                    ha_high = row['ha_high']
+                    ha_low = row['ha_low']
+                    ha_close = row['ha_close']
+                    
+                    print(f"{date_val=} {ha_open=} {ha_close=}")
+                    batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, ha_open, ha_high, ha_low, ha_close))
+                    
+                    if len(batch_data) >= BATCH_SIZE:
+                        await self.db.insert_batch_data(table_name, batch_data)
+                        batch_data = []
 
-            df = df[df['datetime'] > cutoff_datetime]
-            BATCH_SIZE = 1000
-            batch_data = []
-            tasks = []
+                if batch_data:
+                    await self.db.insert_batch_data(table_name, batch_data)
 
-            for index, row in df.iterrows():
-                date_val = row['datetime']
-                open_val = row['open']
-                high_val = row['high']
-                low_val = row['low']
-                close_val = row['close']
-                ha_open = row['ha_open']
-                ha_high = row['ha_high']
-                ha_low = row['ha_low']
-                ha_close = row['ha_close']
-                batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, ha_open, ha_high, ha_low, ha_close))
-                
-                if len(batch_data) >= BATCH_SIZE:
-                    task = asyncio.create_task(self.db.Insert_two_min_ohlc_proc_batch(batch_data))
-                    tasks.append(task)
-                    batch_data = []
+                # for index, row in df.iterrows():
+                #     date_val = row['datetime']
+                #     open_val = row['open']
+                #     high_val = row['high']
+                #     low_val = row['low']
+                #     close_val = row['close']
+                #     volume_val = 0
+                #     ha_open = row['ha_open']
+                #     ha_high = row['ha_high']
+                #     ha_low = row['ha_low']
+                #     ha_close = row['ha_close']
+                #     print(f"{date_val=} {ha_open=} {ha_close=}")
+                #     await self.db.insert_ohlc_data(table_name, exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val, ha_open, ha_high, ha_low, ha_close)            
 
-            if batch_data:
-                task = asyncio.create_task(self.db.Insert_two_min_ohlc_proc_batch(batch_data))
-                tasks.append(task)
-                if self.log == True:
-                    print('insert_' + table_name, exchange_code, date_val)
-                count += 1
-            num_tasks = len(tasks)
-            info = f"{exchange_code} tasks gathered {num_tasks}"
-            if num_tasks > 0:
-                await asyncio.gather(*tasks)
-                await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_2min', activity='tasks gathered', important_data=info, priority=1, strategy_trade_id = '', timestamp=end_date_now)
+    async def download_one_min(self, df_stocks, current_datetime):
+        print('download_one_min')
+        table_name = 'one_min_ohlc'
+        missed_df = pd.DataFrame(columns=['symbol', 'exchange_code'])
+        enddate = current_datetime
+        #enddate_iso = current_datetime.isoformat()[:10] + 'T15:30:00.000Z'
+        for index, row in df_stocks.iterrows():
+            exchange_code = row['symbol']
+            print(exchange_code)
+            df_last_date = await self.db.get_ohlc_last_datetime(exchange_code, table_name)
+            if len(df_last_date) == 0:
+                days_prior = self.yesterday - timedelta(days=90)
+                startdate = days_prior
             else:
-                await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_2min', activity='len tasks =0', important_data=info, priority=3, strategy_trade_id = '', timestamp=end_date_now)
+                last_date = df_last_date.datetime.iloc[0]
+                if last_date.date() < enddate.date():
+                    startdate = last_date + timedelta(days=1)
+                    startdate = startdate.replace(hour=9, minute=15)
+                else:
+                    startdate = last_date# + timedelta(minutes=5)
+                print(f"{last_date=} {startdate=}")
+            df = ""
+            
+            df = await self.get_data_zerodha_recursive('minute', startdate, enddate, exchange_code)
+            if len(df) > 0:
+                df = df[(df['date'].dt.time >= pd.to_datetime('09:15:00').time()) & 
+                    (df['date'].dt.time <= pd.to_datetime('15:30:00').time())]
+                current_datetime = datetime.now()
+                len_df = len(df)
+                last_date_recd = ''
+                if len_df > 0:
+                    last_date_recd = df.date.iloc[-1]
+                else:
+                    blank_df = pd.DataFrame({'symbol': exchange_code, 'exchange_code': exchange_code}, index=[0])
+                    missed_df = pd.concat([missed_df, blank_df], ignore_index=True)
 
-        if count > 0:
-            return 1, 'None', count
-        else:
-            return 0, 'Unknown Error', count   
+                if len_df > 0:
+                    df['date'] = pd.to_datetime(df['date'])
+                
+                BATCH_SIZE = 1000
+                batch_data = []
+                print('insert_one_min_ohlc ', exchange_code)
+                for index, row in df.iterrows():
+                    date_val = row['date']
+                    open_val = row['open']
+                    high_val = row['high']
+                    low_val = row['low']
+                    close_val = row['close']
+                    volume_val = row['volume']                    
+                    batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val))
 
+                    if len(batch_data) >= BATCH_SIZE:
+                        await self.db.insert_one_min_batch_ohlc(batch_data)
+                        batch_data = []
+
+                if batch_data:
+                    await self.db.insert_one_min_batch_ohlc(batch_data)
+                  
+
+        return missed_df
+    async def download_three_min(self, df_stocks, current_datetime):
+        print('download_three_min')
+        table_name = 'three_min_ohlc'
+        missed_df = pd.DataFrame(columns=['symbol', 'exchange_code'])
+        enddate = current_datetime
+        #enddate_iso = current_datetime.isoformat()[:10] + 'T15:30:00.000Z'
+        for index, row in df_stocks.iterrows():
+            exchange_code = row['symbol']
+            print(exchange_code)
+            df_last_date = await self.db.get_ohlc_last_datetime(exchange_code, table_name)
+            if len(df_last_date) == 0:
+                days_prior = self.yesterday - timedelta(days=90)
+                startdate = days_prior
+            else:
+                last_date = df_last_date.datetime.iloc[0]
+                if last_date.date() < enddate.date():
+                    startdate = last_date + timedelta(days=1)
+                    startdate = startdate.replace(hour=9, minute=15)
+                else:
+                    startdate = last_date# + timedelta(minutes=5)
+                print(f"{last_date=} {startdate=}")
+            df = ""
+
+            df = await self.get_data_zerodha_recursive('3minute', startdate, enddate, exchange_code)
+            if len(df) > 0:
+                df = df[(df['date'].dt.time >= pd.to_datetime('09:15:00').time()) & 
+                    (df['date'].dt.time <= pd.to_datetime('15:30:00').time())]
+                current_datetime = datetime.now()
+                len_df = len(df)
+                last_date_recd = ''
+                if len_df > 0:
+                    last_date_recd = df.date.iloc[-1]
+                else:
+                    blank_df = pd.DataFrame({'symbol': exchange_code, 'exchange_code': exchange_code}, index=[0])
+                    missed_df = pd.concat([missed_df, blank_df], ignore_index=True)
+
+                if len_df > 0:
+                    df['date'] = pd.to_datetime(df['date'])
+                  
+                    # for index, row in df.iterrows():
+                    #     date_val = row['date']
+                    #     open_val = row['open']
+                    #     high_val = row['high']
+                    #     low_val = row['low']
+                    #     close_val = row['close']
+                    #     volume_val = row['volume']
+                    #     print('insert_three_min_ohlc ', exchange_code, date_val)
+                    #     await self.db.insert_three_min_ohlc(exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val)
+
+                    BATCH_SIZE = 1000
+                    batch_data = []
+                    print('insert_three_min_ohlc ', exchange_code)
+                    for index, row in df.iterrows():
+                        date_val = row['date']
+                        open_val = row['open']
+                        high_val = row['high']
+                        low_val = row['low']
+                        close_val = row['close']
+                        volume_val = row['volume']
+
+                        batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val))
+
+                        if len(batch_data) >= BATCH_SIZE:
+                            await self.db.insert_batch_three_min_ohlc(batch_data)
+                            batch_data = []
+
+                    if batch_data:
+                        await self.db.insert_batch_three_min_ohlc(batch_data)
+
+        return missed_df
+    async def download_five_min(self, df_stocks, current_datetime):
+        print('download_five_min')
+        missed_df = pd.DataFrame(columns=['symbol', 'exchange_code'])
+        enddate = current_datetime
+        #enddate_iso = current_datetime.isoformat()[:10] + 'T15:30:00.000Z'
+        for index, row in df_stocks.iterrows():
+            exchange_code = row['symbol']
+            print(exchange_code)
+            df_last_date = await self.db.get_fivemin_ohlc_last_datetime(exchange_code)
+            if len(df_last_date) == 0:
+                days_prior = self.yesterday - timedelta(days=90)
+                startdate = days_prior
+            else:
+                last_date = df_last_date.datetime.iloc[0]
+                if last_date.date() < enddate.date():
+                    startdate = last_date + timedelta(days=1)
+                    startdate = startdate.replace(hour=9, minute=15)
+                else:
+                    startdate = last_date# + timedelta(minutes=5)
+                    #startdate = startdate.to_pydatetime().date()
+                print(f"{last_date=} {startdate=}")
+            df = ""
+
+            df = await self.get_data_zerodha_recursive('5minute', startdate, enddate, exchange_code)
+            if len(df) > 0:
+                df = df[(df['date'].dt.time >= pd.to_datetime('09:15:00').time()) & 
+                    (df['date'].dt.time <= pd.to_datetime('15:30:00').time())]
+                current_datetime = datetime.now()
+                len_df = len(df)
+                last_date_recd = ''
+                if len_df > 0:
+                    last_date_recd = df.date.iloc[-1]
+                else:
+                    blank_df = pd.DataFrame({'symbol': exchange_code, 'exchange_code': exchange_code}, index=[0])
+                    missed_df = pd.concat([missed_df, blank_df], ignore_index=True)
+
+                if len_df > 0:
+                    df['date'] = pd.to_datetime(df['date'])
+                  
+                    for index, row in df.iterrows():
+                        date_val = row['date']
+                        open_val = row['open']
+                        high_val = row['high']
+                        low_val = row['low']
+                        close_val = row['close']
+                        volume_val = row['volume']
+                        await self.db.insert_five_min_ohlc(exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val)
+
+        return missed_df
+    async def download_ten_min(self, df_stocks, current_datetime):
+        print('--------------- download 10 minutes ---------------------')
+        table_name = 'ten_min_ohlc'
+        enddate = current_datetime
+        for index, row in df_stocks.iterrows():
+            exchange_code = row['symbol']
+            print(exchange_code)
+            if current_datetime.minute % 15 == 0:
+                df_last_date = await self.db.get_ohlc_last_datetime(exchange_code, table_name)
+                if len(df_last_date) == 0:
+                    days_prior = self.yesterday - timedelta(days=90)
+                    startdate = days_prior
+                else:
+                    last_date = df_last_date.datetime.iloc[0]
+                    if last_date.date() < enddate.date():
+                        startdate = last_date + timedelta(days=1)
+                        startdate = startdate.replace(hour=9, minute=15)
+                    else:
+                        startdate = last_date #+ timedelta(minutes=15)
+                        
+                    print(f"{last_date=} {startdate=}")
+
+                df = await self.get_data_zerodha_recursive('10minute', startdate, enddate, exchange_code)
+                if len(df) > 0:
+                    df = df[(df['date'].dt.time >= pd.to_datetime('09:15:00').time()) & 
+                        (df['date'].dt.time <= pd.to_datetime('15:30:00').time())]
+                    df['date'] = pd.to_datetime(df['date'])
+                    df.set_index('date', inplace=True)
+
+                    for index, row in df.iterrows():
+                        date_val = index
+                        open_val = row['open']
+                        high_val = row['high']
+                        low_val = row['low']
+                        close_val = row['close']
+                        volume_val = row['volume']
+                        await self.db.insert_ten_min_ohlc(exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val)
+    async def download_fifteen_min(self, df_stocks, current_datetime):
+        print('--------------- download 15 minutes ---------------------')
+
+        enddate = current_datetime
+        for index, row in df_stocks.iterrows():
+            exchange_code = row['symbol']
+            print(exchange_code)
+            if current_datetime.minute % 15 == 0:
+                df_last_date = await self.db.get_last_datetime_fifteen_min(exchange_code)
+                if len(df_last_date) == 0:
+                    days_prior = self.yesterday - timedelta(days=90)
+                    startdate = days_prior
+                else:
+                    last_date = df_last_date.datetime.iloc[0]
+                    if last_date.date() < enddate.date():
+                        startdate = last_date + timedelta(days=1)
+                        startdate = startdate.replace(hour=9, minute=15)
+                    else:
+                        startdate = last_date #+ timedelta(minutes=15)
+                        
+                    print(f"{last_date=} {startdate=}")
+
+                df = await self.get_data_zerodha_recursive('15minute', startdate, enddate, exchange_code)
+                if len(df) > 0:
+                    df = df[(df['date'].dt.time >= pd.to_datetime('09:15:00').time()) & 
+                        (df['date'].dt.time <= pd.to_datetime('15:30:00').time())]
+                    df['date'] = pd.to_datetime(df['date'])
+                    df.set_index('date', inplace=True)
+
+                    for index, row in df.iterrows():
+                        date_val = index
+                        open_val = row['open']
+                        high_val = row['high']
+                        low_val = row['low']
+                        close_val = row['close']
+                        volume_val = row['volume']
+                        await self.db.insert_fifteen_min_ohlc(exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val)
+    async def download_thirty_min(self, df_stocks, current_datetime):
+        print('--------------- download 30 minutes ---------------------')
+        
+        for index, row in df_stocks.iterrows():
+            exchange_code = row['symbol']
+            print(exchange_code)
+            if current_datetime.minute % 30 == 0:
+                df_last_date = await self.db.get_last_datetime_thirty_min(exchange_code)
+                if len(df_last_date) == 0:
+                    days_prior = self.yesterday - timedelta(days=90)
+                    startdate = days_prior
+                    sdate_iso = days_prior.isoformat()[:10] + 'T09:15:00.000Z'
+                else:
+                    last_date = df_last_date.datetime.iloc[0]
+                    if last_date.date() < current_datetime.date():
+                        startdate = last_date + timedelta(days=1)
+                        startdate = startdate.replace(hour=9, minute=15)
+                    else:
+                        startdate = last_date #+ timedelta(minutes=5)
+                    print(f"{last_date=} {startdate=}")
+                    sdate_iso = startdate.isoformat()
+                df = ""
+                try:
+                    print('gethistorical_daily', exchange_code)
+                    df = await self.get_data_zerodha_recursive('30minute', startdate, current_datetime, exchange_code)
+                    if len(df) > 0:
+                        df = df[(df['date'].dt.time >= pd.to_datetime('09:15:00').time()) & 
+                            (df['date'].dt.time <= pd.to_datetime('15:30:00').time())]
+                        df = df[(df['date'].dt.time >= pd.to_datetime('09:15:00').time()) & 
+                        (df['date'].dt.time <= pd.to_datetime('15:30:00').time())]
+                        print(f"First new date: {df['date'].iloc[0]}")
+                        print(df)
+                        for index, row in df.iterrows():
+                            date_val = row['date']
+                            open_val = row['open']
+                            high_val = row['high']
+                            low_val = row['low']
+                            close_val = row['close']
+                            volume_val = row['volume']
+                            await self.db.insert_thirty_min_ohlc(exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val)
+                except Exception as e:
+                    info = f"Error in downloading, {exchange_code}, {e}"
+                    print(info)
+                    await self.db.pre_process_logs(self.today_str, 'download_5 min_ohlc', 'main live data', info, 4)
+                    continue
+    async def download_hour(self, df_stocks, current_datetime):        
+        for index, row in df_stocks.iterrows():
+            exchange_code = row['symbol']
+            print(exchange_code)
+            if current_datetime.minute == 15:
+                df_last_date = await self.db.get_last_datetime_one_hour_ohlc(exchange_code)
+                if len(df_last_date) == 0:
+                    days_prior = self.yesterday - timedelta(days=90)
+                    startdate = days_prior
+                else:
+                    last_date = df_last_date.datetime.iloc[0]
+                    if last_date.date() < current_datetime.date():
+                        startdate = last_date + timedelta(days=1)
+                        startdate = startdate.replace(hour=9, minute=15)
+                    else:
+                        startdate = last_date #+ timedelta(minutes=15)
+                    print(f"{last_date=} {startdate=}")
+
+                df = await self.get_data_zerodha_recursive('60minute', startdate, current_datetime, exchange_code)
+                if len(df) > 0:
+                    df = df[(df['date'].dt.time >= pd.to_datetime('09:15:00').time()) & 
+                        (df['date'].dt.time <= pd.to_datetime('15:30:00').time())]
+                    df['date'] = pd.to_datetime(df['date'])
+                    df.set_index('date', inplace=True)
+
+                    for index, row in df.iterrows():
+                        date_val = index
+                        open_val = row['open']
+                        high_val = row['high']
+                        low_val = row['low']
+                        close_val = row['close']
+                        volume_val = row['volume']
+                        await self.db.insert_one_hour_ohlc(exchange_code, date_val, open_val, high_val, low_val, close_val, volume_val)
     async def process_heikinashi(self, unproc_datetime, df_new, df_old, table, exchange_code):
         df_old.sort_values(by='datetime', inplace=True)
         df_concatenated = pd.concat([df_old, df_new], ignore_index=True)
@@ -869,43 +1242,98 @@ class Start(object):
     async def download_current_data(self):
         current_datetime = datetime.now()
         print(f"{current_datetime=}")
-        status, data, Error = await self.get_data_zerodha_recursive_list('minute',  datetime.now() - timedelta(hours=5), datetime.now(), 256265, 'NIFTY 50')
-        if status == 1:
-            self.zerodha_last_trans = data[-1]['date'].replace(tzinfo=None).replace(second=0, microsecond=0)
-        interval = 'minute'
-        await self.download_ohlc_v2(self.df_priority_stocks, interval)
-        #await self.process_indicators_one_min(self.df_priority_stocks)
-        
-        await self.download_two_min(self.df_priority_stocks, current_datetime)
-        #await self.process_indicators_two_min(self.df_priority_stocks)
-
+        df_all_stocks = await self.db.get_monitor_symbols_to_trade()
+        if len(df_all_stocks) == 0:
+            print('No symbols to trade')
+        count = 0
+        missed_df = await self.download_one_min(df_all_stocks, current_datetime)
+        await self.process_indicators_one_min(df_all_stocks)
+        await self.download_two_min(df_all_stocks, current_datetime)
+        await self.process_indicators_two_min(df_all_stocks)
         if current_datetime.minute % 3 == 0:
-            await self.download_ohlc_v2(self.df_priority_stocks, '3minute')
-            #await self.process_indicators_three_min(self.df_priority_stocks)
+            await self.download_three_min(df_all_stocks, current_datetime)
+            await self.process_indicators_three_min(df_all_stocks)
         if current_datetime.minute % 5 == 0:
-            await self.download_ohlc_v2(self.df_priority_stocks, '5minute')
-            #await self.process_indicators_five_min(self.df_priority_stocks)
+            missed_df = await self.download_five_min(df_all_stocks, current_datetime)
+            if len(missed_df) > 0:
+                print('reprocessing missed df')
+                await self.download_five_min(missed_df, current_datetime)
+        
+        await self.process_indicators_five_min(df_all_stocks)
 
         if current_datetime.minute % 10 == 0:
-            await self.download_ohlc_v2(self.df_priority_stocks, '10minute')
-            #await self.process_indicators_ten_min(self.df_priority_stocks)
+            await self.download_ten_min(df_all_stocks, current_datetime)
+            await self.process_indicators_ten_min(df_all_stocks)
         if current_datetime.minute % 15 == 0:
-            await self.download_ohlc_v2(self.df_priority_stocks, '15minute')
-            #await self.process_indicators_fifteen_min(self.df_priority_stocks)
+            await self.download_fifteen_min(df_all_stocks, current_datetime)
+            await self.process_indicators_fifteen_min(df_all_stocks)
         if current_datetime.minute % 30 == 0:
-            await self.download_ohlc_v2(self.df_priority_stocks, '30minute')
-            #await self.process_indicators_thirty_min(self.df_priority_stocks)
+            await self.download_thirty_min(df_all_stocks, current_datetime)
+            await self.process_indicators_thirty_min(df_all_stocks)
         if current_datetime.minute == 15:
-            await self.download_ohlc_v2(self.df_priority_stocks, '60minute')
-            #await self.process_indicators_hour(self.df_priority_stocks)
-    
+            await self.download_hour(df_all_stocks, current_datetime)
+            await self.process_indicators_hour(df_all_stocks)
+    async def update_symbols_to_monitor(self):
+        df_basket_stocks = await self.db.get_active_basket_symbols()
+        symbols_list = df_basket_stocks['tradingsymbol'].unique()
+        prefixed_symbols_list = ['NSE:' + symbol for symbol in symbols_list]
+        df_ltp = self.zerodha.getLTPMulti(prefixed_symbols_list)
+        def get_last_price(symbol):
+            if symbol in df_ltp:
+                return df_ltp[symbol]['last_price']
+            else:
+                return None  
+        await self.db.run_query('truncate table monitor_symbols;')
+        current_date_string = datetime.now().strftime("%Y-%m-%d")
+        await self.db.pre_process_logs(current_date_string, 'update_symbols_to_monitor', 'symbols deleted', 'truncate table monitor_symbols', 1)
+        print('df_basket_stocks', df_basket_stocks)
+        print('df_ltp', df_ltp)
+        for index_baket, row_basket in df_basket_stocks.iterrows():
+            option_type = row_basket['option_type']
+            instrument_token = row_basket['instrument_token']
+            symbol = row_basket['tradingsymbol']
+            ltp = get_last_price('NSE:' + symbol)
+            print(f"{symbol} {ltp=}")
+            if ltp is not None:
+                df_strikes = instruments.get_nearest_ten_strikes(symbol, ltp, option_type)
+                df_strikes.expiry = pd.to_datetime(df_strikes.expiry)
+                for index, row in df_strikes.iterrows():
+                    instrument_token = row['instrument_token']
+                    tradingsymbol = row['tradingsymbol']
+                    expiry = row['expiry'].strftime('%Y-%m-%d')
+                    strike = row['strike']
+                    instrument_type = row['instrument_type']
+                    print(f"{instrument_token}, {tradingsymbol}, {expiry=}, {strike=}, {instrument_type=}")
+                    await self.db.insert_into_monitor_symbols(instrument_token, tradingsymbol, expiry, strike, instrument_type, ltp, symbol)
+    async def final_download(self):
+        current_datetime = datetime.now()
+        df_all_stocks = await self.db.get_monitor_symbols_to_trade()
+        await self.download_two_min(df_all_stocks, current_datetime)
+        await self.process_indicators_two_min(df_all_stocks)
+        await self.download_three_min(df_all_stocks, current_datetime)
+        await self.process_indicators_three_min(df_all_stocks)
+        await self.download_five_min(df_all_stocks, current_datetime)
+        await self.process_indicators_five_min(df_all_stocks)
+        await self.download_ten_min(df_all_stocks, current_datetime)
+        await self.process_indicators_ten_min(df_all_stocks)
+
+        await self.download_fifteen_min(df_all_stocks, current_datetime)
+        await self.process_indicators_fifteen_min(df_all_stocks)
+        await self.download_thirty_min(df_all_stocks, current_datetime)
+        await self.process_indicators_thirty_min(df_all_stocks)
+        await self.download_hour(df_all_stocks, current_datetime)
+        await self.process_indicators_hour(df_all_stocks)
 async def main():
     start = Start()
+    current_datetime = datetime.now()
     await start.start_pool()
-    priority_stocks_tpl = await start.db.get_priority_instruments_to_trade()
-    start.df_priority_stocks = pd.DataFrame(priority_stocks_tpl, columns=['instrument_token', 'symbol'])
-    all_symbols = start.df_priority_stocks['symbol'].to_list()
 
+    priority_stocks_tpl = await start.db.get_priority_instruments_to_trade()
+    #print('priority_stocks_tpl:', len(priority_stocks_tpl))
+    df_priority_stocks = pd.DataFrame(priority_stocks_tpl, columns=['instrument_token', 'symbol'])
+    all_symbols = df_priority_stocks['symbol'].to_list()
+    # table_name = 'one_min_ohlc'
+    # interval = 'minute'
     for interval, table_name in start.interval_to_table.items():
         prvdata = await start.db.get_old_data_limit(table_name)
         for s_value, group_df in prvdata.groupby('symbol'):
@@ -917,7 +1345,21 @@ async def main():
                 datetime_list = group_df['datetime'].tolist()
                 start.dates_collections[interval][s_value] = datetime_list
     
-    # return
+    start_time = time.time()
+    status, data, Error = await start.get_data_zerodha_recursive_list('minute',  datetime.now() - timedelta(hours=5), datetime.now(), 256265, 'NIFTY 50')
+    start.zerodha_last_trans = None
+    if status == 1:
+        start.zerodha_last_trans = data[-1]['date'].replace(tzinfo=None).replace(second=0, microsecond=0)
+
+    print(f"{start.zerodha_last_trans=}")
+
+    await start.download_ohlc_v2(df_priority_stocks, interval)
+    end_time = time.time()  
+    total_time = end_time - start_time
+    print(f"------------------------Total time taken to execute the code: {total_time:.2f} seconds")
+    await asyncio.sleep(1)
+    await start.close_pool()
+    return
     while True:
         CurrentDateTime = datetime.now()
         current_time = CurrentDateTime.time()
@@ -931,6 +1373,10 @@ async def main():
             print('Waiting for the market to open')
             await asyncio.sleep(1)
         elif current_time >= start.exit_time:
+            await start.start_pool()
+            await start.final_download()
+            await asyncio.sleep(1)
+            await start.close_pool()
             print('Exitting Market time Over')
             break
 if __name__ == "__main__":

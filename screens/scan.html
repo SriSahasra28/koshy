@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scan</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .accordion-like {
+            border: 1px solid #dee2e6;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .title-cn {
+            background-color: #f8f9fa;
+            border-radius: 10px 10px 0 0;
+            padding: 15px;
+            margin: -15px -15px 0 -15px;
+        }
+        .body-cn {
+            display: flex;
+            background-color: #ffffff;
+            border-radius: 0 0 10px 10px;
+            padding: 15px;
+        }
+        .left-panel {
+            background-color: #f8f9fa;
+            border-radius: 10px 0 0 10px;
+            width: 25%;
+            padding: 15px;
+        }
+        .right-panel {
+            background-color: #ffffff;
+            border-radius: 0 10px 10px 0;
+            width: 75%;
+            padding: 15px;
+        }
+        .scan-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .scan-item i {
+            cursor: pointer;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .grid-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .grid-row > * {
+            margin-right: 10px;
+        }
+        .grid-row > *:last-child {
+            margin-right: 0;
+        }
+        .row-4 {
+            display: flex;
+            align-items: center;
+        }
+        .row-4 > *:not(:last-child) {
+            margin-right: 10px;
+        }
+        .timeframes {
+            display: flex;
+            flex-wrap: wrap;
+        }
+        .timeframes label {
+            margin-right: 10px;
+        }
+        .small-select {
+            width: 150px;
+        }
+        .small-button {
+            padding: 5px 10px;
+        }
+    </style>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+</head>
+<body>
+
+<div class="container mt-5">
+    <div class="accordion-like">
+        <div class="title-cn">
+            Scan
+        </div>
+        <div class="body-cn">
+            <div class="left-panel">
+                <div class="scan-item">
+                    <span>Scan-1</span>
+                    <span>
+                        <i class="fas fa-edit"></i>
+                        <i class="fas fa-trash-alt"></i>
+                    </span>
+                </div>
+                <div class="scan-item">
+                    <span>Scan-2</span>
+                    <span>
+                        <i class="fas fa-edit"></i>
+                        <i class="fas fa-trash-alt"></i>
+                    </span>
+                </div>
+                <div class="scan-item">
+                    <span>Scan-3</span>
+                    <span>
+                        <i class="fas fa-edit"></i>
+                        <i class="fas fa-trash-alt"></i>
+                    </span>
+                </div>
+                <!-- Add more scan items as needed -->
+            </div>
+            <div class="right-panel">
+                <div class="form-group">
+                    <label for="groupSelect">Group</label>
+                    <select class="form-control" id="groupSelect">
+                        <option>Group 1</option>
+                        <option>Group 2</option>
+                        <option>Group 3</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <button class="btn btn-primary">Add</button>
+                </div>
+                <div class="grid-row">
+                    <label>SNo</label>
+                    <div class="timeframes">
+                        <label><input type="checkbox" value="1"> 1</label>
+                        <label><input type="checkbox" value="2"> 2</label>
+                        <label><input type="checkbox" value="3"> 3</label>
+                        <label><input type="checkbox" value="5"> 5</label>
+                        <label><input type="checkbox" value="10"> 10</label>
+                        <label><input type="checkbox" value="15"> 15</label>
+                        <label><input type="checkbox" value="30"> 30</label>
+                        <label><input type="checkbox" value="60"> 60</label>
+                    </div>
+                    <select class="form-control small-select" id="cnSelect">
+                        <option>CN 1020</option>
+                        <option>CN 1021</option>
+                        <option>CN 1022</option>
+                    </select>
+                    <button class="btn btn-danger small-button">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                </div>
+                <div class="row-4">
+                    <label for="nameInput">Name</label>
+                    <input type="text" class="form-control" id="nameInput" value="Scan-1">
+                    <button class="btn btn-success">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bootstrap JS and dependencies -->
+<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.4/dist/umd/popper.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+</body>
+</html>
