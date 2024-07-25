@@ -286,8 +286,10 @@ class dbconnection:
                     retry_count += 1
                     await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
                 else:
-                    raise
-        raise Exception(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
+                    print(f"Operational error occurred: {e}")
+                    return
+
+        print(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
 
     async def Insert_three_min_ohlc_proc_batch(self, batch_data, max_retries=5):
         retry_count = 0
@@ -300,14 +302,17 @@ class dbconnection:
                             batch_data
                         )
                         await conn.commit()
-                return
+                return  # Exit the function if successful
             except aiomysql.OperationalError as e:
                 if e.args[0] == 1213:  # Error code for deadlock
                     retry_count += 1
                     await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
                 else:
-                    raise
-        raise Exception(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
+                    print(f"Operational error occurred: {e}")
+                    return
+
+        print(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
+
 
     async def Insert_two_min_ohlc_proc_batch(self, batch_data, max_retries=5):
         retry_count = 0
@@ -326,8 +331,10 @@ class dbconnection:
                     retry_count += 1
                     await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
                 else:
-                    raise
-        raise Exception(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
+                    print(f"Operational error occurred: {e}")
+                    return
+
+        print(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
 
     async def Insert_five_min_ohlc_proc_batch(self, batch_data, max_retries=5):
         retry_count = 0
@@ -346,8 +353,9 @@ class dbconnection:
                     retry_count += 1
                     await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
                 else:
-                    raise
-        raise Exception(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
+                    print(f"Operational error occurred: {e}")
+                    return
+        print(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
 
     async def Insert_ten_min_ohlc_proc_batch(self, batch_data, max_retries=5):
         retry_count = 0
@@ -366,8 +374,9 @@ class dbconnection:
                     retry_count += 1
                     await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
                 else:
-                    raise
-        raise Exception(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
+                    print(f"Operational error occurred: {e}")
+                    return
+        print(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
 
     async def Insert_fifteen_min_ohlc_proc_batch(self, batch_data, max_retries=5):
         retry_count = 0
@@ -386,8 +395,9 @@ class dbconnection:
                     retry_count += 1
                     await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
                 else:
-                    raise
-        raise Exception(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
+                    print(f"Operational error occurred: {e}")
+                    return
+        print(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
     
     async def Insert_thirty_min_ohlc_proc_batch(self, batch_data, max_retries=5):
         retry_count = 0
@@ -406,8 +416,10 @@ class dbconnection:
                     retry_count += 1
                     await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
                 else:
-                    raise
-        raise Exception(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
+                    print(f"Operational error occurred: {e}")
+                    return
+
+        print(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
 
     async def Insert_hour_ohlc_proc_batch(self, batch_data, max_retries=5):
         retry_count = 0
@@ -426,8 +438,9 @@ class dbconnection:
                     retry_count += 1
                     await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
                 else:
-                    raise
-        raise Exception(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
+                    print(f"Operational error occurred: {e}")
+                    return
+        print(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
 
 
     # async def insert_batch_data(self, table_name, batch_data):
