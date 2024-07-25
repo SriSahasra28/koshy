@@ -435,8 +435,7 @@ class Start(object):
     async def download_ohlc_2min(self, df_all_stocks):
         table_name = 'two_min_ohlc'
         interval = '2minute'
-        global last_working_day
-        last_working_day_str = last_working_day.strftime('%d-%m-%Y')
+        
         count = 0
         end_date_now = datetime.now().replace(second=0, microsecond=0)
         for index, row in df_all_stocks.iterrows():
