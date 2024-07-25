@@ -656,7 +656,9 @@ async def update_symbols_to_monitor():
     return 1, 'None', 1
 
 async def process_option(symbol, ltp, option_type, main_symbol, next_month=False):
-    df_strikes = instruments.get_nearest_ten_strikes(symbol, ltp, option_type, next_month)
+    status, df_strikes = instruments.get_nearest_ten_strikes(symbol, ltp, option_type, next_month)
+    if status == -1:
+        return
     df_strikes.expiry = pd.to_datetime(df_strikes.expiry)
     for index, row in df_strikes.iterrows():
         instrument_token = row['instrument_token']
@@ -709,10 +711,12 @@ async def rollover():
     option_rollover_date = df_cred['option_rollover_date'].iloc[0]
     print(f"{option_rollover_date=}")
     if option_rollover_date.month < today.month:
-        df_expiry = await db.get_data("SELECT expiry from instruments where exchange = 'NFO' and month(expiry) = month(curdate()) and year(expiry) = year(curdate()) and name in ('NIFTY', 'BANKNIFTY','FINNIFTY') order by expiry desc limit 1;")
+        #df_expiry = await db.get_data("SELECT expiry from instruments where exchange = 'NFO' and month(expiry) = month(curdate()) and year(expiry) = year(curdate()) and name in ('NIFTY', 'BANKNIFTY','FINNIFTY') order by expiry desc limit 1;")
+        df_expiry = await db.get_data("SELECT expiry from instruments where exchange = 'NFO' and month(expiry) = month(curdate()) and year(expiry) = year(curdate()) and name in ('NIFTY') order by expiry desc limit 1;")
         last_expiry = df_expiry.expiry.iloc[0]
         if (datetime.now().hour >= 16 and last_expiry <= today) or (last_expiry < today):
             print('Truncate tables & turnover option_date')
+            # download instruments
             await db.run_query('Truncate table one_min_ohlc;') 
             await db.run_query('Truncate table fifteen_min_ohlc;')
             await db.run_query('Truncate table five_min_ohlc;')
@@ -730,7 +734,7 @@ async def rollover():
             print('option rollover done')
             return 1
         else:
-            print(f'No rollover of option inner {last_expiry=} {today}')
+            print(f'No rollover of option inner {last_expiry=} {today=}')
             return 0
     else:
         print('No rollover of option- option_rollover_date same month')

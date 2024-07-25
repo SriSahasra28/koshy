@@ -310,7 +310,7 @@ class Start(object):
                 ha_low_val = ha_low[i]
                 ha_close_val = ha_close[i]
                 batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, ha_open_val, ha_high_val, ha_low_val, ha_close_val))
-                print('batch_data', len(batch_data))
+                #print('batch_data', len(batch_data))
                 
                 if len(batch_data) >= BATCH_SIZE:
                     if table_name == 'one_min_ohlc':
