@@ -98,7 +98,7 @@ class login():
         df = pd.DataFrame(lst)
         if exch == 'NFO': 
             df = df[df.segment == 'NFO-OPT']
-            df = df[(df.name == 'NIFTY') | (df.name == 'BANKNIFTY') | (df.name == 'FINNIFTY')]
+            #df = df[(df.name == 'NIFTY') | (df.name == 'BANKNIFTY') | (df.name == 'FINNIFTY')]
 
         if len(df) == 0:
             print('No data returned')
