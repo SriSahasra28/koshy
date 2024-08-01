@@ -442,36 +442,6 @@ class dbconnection:
                     return
         print(f"Failed to execute batch after {max_retries} retries due to deadlocks.")
 
-
-    # async def insert_batch_data(self, table_name, batch_data):
-    #     MAX_RETRIES = 5  # Maximum number of retries
-    #     RETRY_DELAY = 2  # Delay between retries in seconds
-    #     retries = 0
-    #     while retries < MAX_RETRIES:
-    #         try:
-    #             async with self.pool.acquire() as conn:
-    #                 async with conn.cursor() as cur:
-    #                     await cur.executemany(
-    #                         f"""
-    #                         INSERT IGNORE INTO {table_name} 
-    #                         (symbol, datetime, open, high, low, close, volume, ha_open, ha_high, ha_low, ha_close)
-    #                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    #                         """,
-    #                         batch_data
-    #                     )
-    #                     await conn.commit()
-    #             return  # Exit the function on success
-    #         except OperationalError as e:
-    #             if e.args[0] == 1213:  # Deadlock error code
-    #                 retries += 1
-    #                 if retries < MAX_RETRIES:
-    #                     print(f"Deadlock detected, retrying {retries}/{MAX_RETRIES}...")
-    #                     await asyncio.sleep(RETRY_DELAY)  # Wait before retrying
-    #                 else:
-    #                     print("Max retries reached. Could not complete the transaction due to deadlock.")
-    #                     raise
-    #             else:
-    #                 raise  # Raise other operational errors immediately
     async def get_old_data(self, table_name):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
@@ -861,7 +831,6 @@ class dbconnection:
     async def get_monitor_symbols_to_trade(self):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                #query = f"SELECT symbol FROM monitor_symbols where active = 1;"
                 query = f"SELECT m.instrument_token, m.symbol FROM monitor_symbols m left join instruments i on m.instrument_token = i.instrument_token where m.active = 1 and i.expiry >= curdate();"
                 await cur.execute(query)
                 data = await cur.fetchall()
@@ -1053,3 +1022,48 @@ class dbconnection:
                 await cur.execute(query)
                 data = await cur.fetchall()
         return data
+    
+    async def get_scan_items(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("CALL get_scan_items()")
+                data = await cur.fetchall()
+                columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df
+    
+    async def get_custom_indicators(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("Select c.id, indicator_id, i.name, value from custom_indicators c inner join indicators i on c.indicator_id = i.id where c.active = 1;")
+                data = await cur.fetchall()
+                columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df
+
+    async def get_conditions(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("Select * from conditions where active = 1;")
+                data = await cur.fetchall()
+                columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df
+
+    async def get_hlfp(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("Select * from hlfp;")
+                data = await cur.fetchall()
+                columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df
+
+    async def insert_alert(self, symbol, datetime, scanid, timeframe):        
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "CALL insert_alert(%s, %s, %s, %s)",
+                    (symbol, datetime, scanid, timeframe)
+                )
+                await conn.commit()

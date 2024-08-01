@@ -34,11 +34,11 @@ global lrc_period, lrc_stdev, start_time, end_time
 
 start_time = tm(9, 15)
 end_time = tm(15, 30)
-global data_collections, dates_collections
+global data_collections, dates_collections, ha_collection
 
 data_collections = {f"{key}": {} for key in interval_to_table}
 dates_collections = {f"{key}": {} for key in interval_to_table}
-
+ha_collection = {f"{key}": {} for key in interval_to_table}
 global disabled_symbols, fail_count
 disabled_symbols = []
 fail_count = {}
@@ -334,9 +334,11 @@ async def download(tpl_stocks, interval):
             data_collections[interval][exchange_code] = data_combined
 
         print('len data_combined:', len(data_combined), 'len dates_combined:', len(dates_combined))
-        # calculate indicators
-        ha_open, ha_high, ha_low, ha_close = heikin_ashi_numpy(data_combined[:,0], data_combined[:,1], data_combined[:,2], data_combined[:,3])
 
+        ha_open, ha_high, ha_low, ha_close = heikin_ashi_numpy(data_combined[:,0], data_combined[:,1], data_combined[:,2], data_combined[:,3])
+        
+        ha_combined = np.column_stack((ha_open, ha_high, ha_low, ha_close))
+        
         index_start = 0
         if cutoff_datetime in dates_combined:
             index_start = dates_combined.index(cutoff_datetime)

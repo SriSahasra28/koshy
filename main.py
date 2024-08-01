@@ -19,6 +19,121 @@ from numba import jit
 import time
 
 @jit(nopython=True)
+def calc_fastStochastics(low, high, close, lookback_period, d_period, k_smoothing_period=1):
+    n = len(close)
+    lowest_low = np.full(n, np.nan)
+    highest_high = np.full(n, np.nan)
+    raw_K = np.full(n, np.nan)
+    
+    # Calculate lowest low and highest high for the lookback period
+    for i in range(lookback_period - 1, n):
+        ll = np.min(low[i - lookback_period + 1:i + 1])
+        hh = np.max(high[i - lookback_period + 1:i + 1])
+        lowest_low[i] = ll
+        highest_high[i] = hh
+        
+        # Check for division by zero
+        if hh != ll:
+            raw_K[i] = 100 * (close[i] - ll) / (hh - ll)
+        else:
+            raw_K[i] = 0  # or np.nan
+    
+    # Smooth the K values
+    K = np.full(n, np.nan)
+    if k_smoothing_period > 1:
+        for i in range(k_smoothing_period - 1, n):
+            K[i] = np.mean(raw_K[i - k_smoothing_period + 1:i + 1])
+    else:
+        K = raw_K
+    
+    # Calculate the D values
+    D = np.full(n, np.nan)
+    for i in range(d_period - 1, n):
+        D[i] = np.mean(K[i - d_period + 1:i + 1])
+    
+    return K, D
+
+@jit(nopython=True)
+def linear_regression_channel_numba(close, period, std_multiplier):
+    close = close[-period:]
+    X = np.arange(len(close))
+    N = len(X)
+    sum_X = np.sum(X)
+    sum_Y = np.sum(close)
+    sum_XY = np.sum(X * close)
+    sum_X2 = np.sum(X * X)
+    
+    # Initialize slope and intercept with default values
+    slope = 0.0
+    intercept = np.mean(close)
+    
+    # Avoid division by zero in slope and intercept calculations
+    denominator_slope = (N * sum_X2 - sum_X * sum_X)
+    if denominator_slope != 0:
+        slope = (N * sum_XY - sum_X * sum_Y) / denominator_slope
+
+    denominator_intercept = N
+    if denominator_intercept != 0:
+        intercept = (sum_Y - slope * sum_X) / denominator_intercept
+    
+    LRL = intercept + slope * X
+    residuals = close - LRL
+    std_dev = np.std(residuals)
+    UCL = LRL + std_multiplier * std_dev
+    LCL = LRL - std_multiplier * std_dev
+
+    angle_radians = np.arctan(slope)
+    angle_degrees = np.degrees(angle_radians)
+
+    return LRL, UCL, LCL, angle_degrees
+
+@jit(nopython=True)
+def psar(high, low, close, af0=0.02, af=0.02, max_af=0.2):
+    length = len(close)
+    psar = np.zeros(length)
+    psar[0] = close[0]
+    trend = 1  # 1: uptrend, -1: downtrend
+    ep = high[0]  # extreme point
+    af = af0
+    for i in range(1, length):
+        psar[i] = psar[i-1] + af * (ep - psar[i-1])
+        if trend == 1:
+            if high[i] > ep:
+                ep = high[i]
+                af = min(af + af0, max_af)
+            if low[i] < psar[i]:
+                trend = -1
+                psar[i] = ep
+                ep = low[i]
+                af = af0
+        else:
+            if low[i] < ep:
+                ep = low[i]
+                af = min(af + af0, max_af)
+            if high[i] > psar[i]:
+                trend = 1
+                psar[i] = ep
+                ep = high[i]
+                af = af0
+
+        if trend == 1:
+            psar[i] = min(psar[i], low[i-1], low[i-2])
+        else:
+            psar[i] = max(psar[i], high[i-1], high[i-2])
+    return psar
+
+@jit(nopython=True)
+def get_psar_signals(close, psar_values):
+    signals = np.zeros(len(close))   
+    for i in range(1, len(close)):
+        if close[i] > psar_values[i] and close[i-1] <= psar_values[i-1]:
+            signals[i] = 1  # Long signal
+        elif close[i] < psar_values[i] and close[i-1] >= psar_values[i-1]:
+            signals[i] = -1  # Short signal
+    
+    return signals
+
+@jit(nopython=True)
 def heikin_ashi_numpy(open_prices, high_prices, low_prices, close_prices):
     open_prices = np.asarray(open_prices)
     high_prices = np.asarray(high_prices)
@@ -78,11 +193,23 @@ class Start(object):
                 }
         self.data_collections = {f"{key}": {} for key in self.interval_to_table}
         self.dates_collections = {f"{key}": {} for key in self.interval_to_table}
+        self.ha_collection = {f"{key}": {} for key in self.interval_to_table}
+
         self.end_date_today = datetime.today().replace(hour=15, minute=30, second=0, microsecond=0)
         self.start_time_trans = tm(9, 15)
         self.end_time_trans = tm(15, 30)
         self.df_priority_stocks = None
         self.zerodha_last_trans = None
+        self.interval_to_digit = {
+                'minute': '1 min','2minute': '2 min', '5minute': '5 min', '3minute': '3 min', '10minute': '10 min',
+                '15minute': '15 min', '30minute': '30 min', '60minute': '1 hour'
+            }
+        self.df_scan_items = None
+        self.df_custom_indicators = None
+        self.df_conditions = None
+        self.df_HLFP = None
+        self.priority_stocks_tpl = None
+
     async def start_pool(self):
         print('start pool')
         loop = asyncio.get_event_loop()
@@ -285,6 +412,9 @@ class Start(object):
             
             # calculate indicators
             ha_open, ha_high, ha_low, ha_close = heikin_ashi_numpy(data_combined[:,0], data_combined[:,1], data_combined[:,2], data_combined[:,3])
+            ha_combined = np.column_stack((ha_open, ha_high, ha_low, ha_close))
+            self.ha_collection[interval][exchange_code] = ha_combined
+
             index_start = 0
             if cutoff_datetime in dates_combined:
                 index_start = dates_combined.index(cutoff_datetime)
@@ -367,70 +497,6 @@ class Start(object):
             await asyncio.gather(*tasks)
 
         return 1, error, count_iter
-
-    async def pine_ema(self, src, length):
-        alpha = 2 / (length + 1)
-        ema_values = []
-        sum_ema = None
-        for value in src:
-            if sum_ema is None:
-                sum_ema = np.mean(src[:length]) 
-            else:
-                sum_ema = alpha * value + (1 - alpha) * sum_ema            
-            ema_values.append(sum_ema)
-        return ema_values
-    def calculate_new_ema(self, latest_close, previous_ema, length):
-        alpha = 2 / (length + 1)
-        new_ema = (latest_close - previous_ema) * alpha + previous_ema
-        return new_ema
-    async def MACD(self, data, fast_ma_period = 12, slow_ma_period = 26, signal_period = 9):
-        data["FMA"] = data['close'].ewm(span=self.fast).mean()
-        data["SMA"] = data['close'].ewm(span=self.slow).mean()
-        data["MACD"] = data["FMA"] - data["SMA"]
-        data["Signal"] = data['MACD'].ewm(span=self.signal).mean()
-        data["histogram"] = data["MACD"] - data["Signal"]
-        data = data[["close", "MACD", "Signal", "histogram"]]
-        return data
-
-    async def process_indicators_one_min(self, df):
-        print('-------------------- process_indicators_1 min -----------------')
-        await self.process_one_min_heikin(df)
-        await self.process_min_PSAR(df, 'minute')
-        return 1
-    async def process_indicators_three_min(self, df):
-        print('-------------------- process_indicators_3 min -----------------')
-        await self.process_three_min_heikin(df)
-        await self.process_min_PSAR(df, '3minute')
-        return 1    
-    async def process_indicators_two_min(self, df):
-        print('-------------------- process_indicators_2 min -----------------')
-        await self.process_min_PSAR(df, '2minute')
-        return 1  
-    async def process_indicators_five_min(self, df):
-        print('-------------------- process_indicators_5 min -----------------')
-        await self.process_fivemin_heikin(df)
-        await self.process_min_PSAR(df, '5minute')
-        return 1
-    async def process_indicators_fifteen_min(self, df):
-        print('-------------------- process_indicators_15 min -----------------')
-        await self.process_fifteenmin_heikin(df)
-        await self.process_min_PSAR(df, '15minute')
-        return 1
-    async def process_indicators_ten_min(self, df):
-        print('-------------------- process_indicators_10 min -----------------')
-        await self.process_tenmin_heikin(df)
-        await self.process_min_PSAR(df, '10minute')
-        return 1
-    async def process_indicators_thirty_min(self, df):
-        print('-------------------- process_indicators 30 minutes -----------------')
-        await self.process_thirtymin_heikin(df)
-        await self.process_min_PSAR(df, '30minute')
-        return 1
-    async def process_indicators_hour(self, df):
-        print('-------------------- process_indicators 1 hour -----------------')
-        await self.process_hour_heikin(df)
-        await self.process_min_PSAR(df, '60minute')
-        return 1
 
     async def download_ohlc_2min(self, df_all_stocks):
         table_name = 'two_min_ohlc'
@@ -547,324 +613,6 @@ class Start(object):
         else:
             return 0, 'Unknown Error', count   
 
-    async def process_heikinashi(self, unproc_datetime, df_new, df_old, table, exchange_code):
-        df_old.sort_values(by='datetime', inplace=True)
-        df_concatenated = pd.concat([df_old, df_new], ignore_index=True)
-        data = ta.candles.ha(df_concatenated['open'], df_concatenated['high'], df_concatenated['low'], df_concatenated['close'])
-        df_concatenated['ha_open'] = data['HA_open'].astype(float).round(2)
-        df_concatenated['ha_high'] = data['HA_high'].astype(float).round(2)
-        df_concatenated['ha_low'] = data['HA_low'].astype(float).round(2)
-        df_concatenated['ha_close'] = data['HA_close'].astype(float).round(2)
-        df_filtered = df_concatenated.loc[df_concatenated['datetime'] >= unproc_datetime]  
-        print('len df_filtered', len(df_filtered))
-        for index, row in df_filtered.iterrows():
-            datetime_val = row['datetime']  
-            ha_open = row['ha_open']
-            ha_high = row['ha_high']
-            ha_low = row['ha_low']
-            ha_close = row['ha_close']
-            await self.db.update_heikin_ashi(ha_open, ha_high, ha_low, ha_close, exchange_code, datetime_val, table)
-    async def process_fivemin_heikin(self, df_all_stocks):
-        print('in process_fivemin_heikin')
-        count = 0
-        table_name = 'five_min_ohlc'
-        for index, row in df_all_stocks.iterrows():
-            count += 1
-            exchange_code = row['symbol']
-            df_new = await self.db.get_null_ohlc(exchange_code, table_name)
-            if len(df_new) == 0:
-                if self.log == True:
-                    print('NULL ohlc not found No need to process', exchange_code, table_name)
-                continue
-            else:
-                df_new['open'] = df_new['open'].astype(float)
-                df_new['high'] = df_new['high'].astype(float)
-                df_new['low'] = df_new['low'].astype(float)
-                df_new['close'] = df_new['close'].astype(float)
-            unproc_datetime = df_new.datetime.iloc[0]
-            df_old = await self.db.get_prior_rows(exchange_code, unproc_datetime, table_name)
-            if len(df_old) == 0:
-                if self.log == True:
-                    print('data not found - get_prior_thirty_rows', table_name)
-                process_fresh = True
-            else:
-                df_new['open'] = df_new['open'].astype(float)
-                df_new['high'] = df_new['high'].astype(float)
-                df_new['low'] = df_new['low'].astype(float)
-                df_new['close'] = df_new['close'].astype(float)
-            await self.process_heikinashi(unproc_datetime, df_new, df_old, table_name, exchange_code)
-        
-        return 1, None, count
-    async def process_tenmin_heikin(self, df_all_stocks):
-        print('in process_tenmin_heikin')
-        count = 0
-        table_name = 'ten_min_ohlc'
-        for index, row in df_all_stocks.iterrows():
-            count += 1
-            exchange_code = row['symbol']
-            df_new = await self.db.get_null_ohlc(exchange_code, table_name)
-            if len(df_new) == 0:
-                if self.log == True:
-                    print('NULL ohlc not found No need to process', exchange_code, table_name)
-                continue
-            else:
-                df_new['open'] = df_new['open'].astype(float)
-                df_new['high'] = df_new['high'].astype(float)
-                df_new['low'] = df_new['low'].astype(float)
-                df_new['close'] = df_new['close'].astype(float)
-            unproc_datetime = df_new.datetime.iloc[0]
-            df_old = await self.db.get_prior_rows(exchange_code, unproc_datetime, table_name)
-            if len(df_old) == 0:
-                if self.log == True:
-                    print('data not found - get_prior_thirty_rows', table_name)
-                process_fresh = True
-            else:
-                df_new['open'] = df_new['open'].astype(float)
-                df_new['high'] = df_new['high'].astype(float)
-                df_new['low'] = df_new['low'].astype(float)
-                df_new['close'] = df_new['close'].astype(float)
-            await self.process_heikinashi(unproc_datetime, df_new, df_old, table_name, exchange_code)
-        
-        return 1, None, count
-    async def process_one_min_heikin(self, df_all_stocks):
-        print('in process_onemin_heikin')
-        count = 0
-        table_name = 'one_min_ohlc'
-        for index, row in df_all_stocks.iterrows():
-            count += 1
-            exchange_code = row['symbol']
-            df_new = await self.db.get_null_ohlc(exchange_code, table_name)
-            if len(df_new) == 0:
-                if self.log == True:
-                    print('NULL ohlc not found No need to process', exchange_code, table_name)
-                continue
-            else:
-                df_new['open'] = df_new['open'].astype(float)
-                df_new['high'] = df_new['high'].astype(float)
-                df_new['low'] = df_new['low'].astype(float)
-                df_new['close'] = df_new['close'].astype(float)
-            unproc_datetime = df_new.datetime.iloc[0]
-            df_old = await self.db.get_prior_rows(exchange_code, unproc_datetime, table_name)
-            if len(df_old) == 0:
-                if self.log == True:
-                    print('data not found - get_prior_thirty_rows', table_name)
-                process_fresh = True
-            else:
-                df_new['open'] = df_new['open'].astype(float)
-                df_new['high'] = df_new['high'].astype(float)
-                df_new['low'] = df_new['low'].astype(float)
-                df_new['close'] = df_new['close'].astype(float)
-            await self.process_heikinashi(unproc_datetime, df_new, df_old, table_name, exchange_code)
-        
-        return 1, None, count
-    async def process_three_min_heikin(self, df_all_stocks):
-        print('in process_threemin_heikin')
-        count = 0
-        table_name = 'three_min_ohlc'
-        for index, row in df_all_stocks.iterrows():
-            count += 1
-            exchange_code = row['symbol']
-            df_new = await self.db.get_null_ohlc(exchange_code, table_name)
-            if len(df_new) == 0:
-                if self.log == True:
-                    print('NULL ohlc not found No need to process', exchange_code, table_name)
-                continue
-            else:
-                df_new['open'] = df_new['open'].astype(float)
-                df_new['high'] = df_new['high'].astype(float)
-                df_new['low'] = df_new['low'].astype(float)
-                df_new['close'] = df_new['close'].astype(float)
-            unproc_datetime = df_new.datetime.iloc[0]
-            df_old = await self.db.get_prior_rows(exchange_code, unproc_datetime, table_name)
-            if len(df_old) == 0:
-                if self.log == True:
-                    print('data not found - get_prior_thirty_rows', table_name)
-                process_fresh = True
-            else:
-                df_new['open'] = df_new['open'].astype(float)
-                df_new['high'] = df_new['high'].astype(float)
-                df_new['low'] = df_new['low'].astype(float)
-                df_new['close'] = df_new['close'].astype(float)
-            await self.process_heikinashi(unproc_datetime, df_new, df_old, table_name, exchange_code)
-        
-        return 1, None, count    
-    async def process_fifteenmin_heikin(self, df_all_stocks):
-        print('in process_fifteenmin_heikin')
-        count = 0
-        table_name = 'fifteen_min_ohlc'
-        for index, row in df_all_stocks.iterrows():
-            count += 1
-            exchange_code = row['symbol']
-            df_new = await self.db.get_null_ohlc(exchange_code, table_name)
-            if len(df_new) == 0:
-                if self.log == True:
-                    print('NULL ohlc not found No need to process', exchange_code, table_name)
-                continue
-            else:
-                df_new['open'] = df_new['open'].astype(float)
-                df_new['high'] = df_new['high'].astype(float)
-                df_new['low'] = df_new['low'].astype(float)
-                df_new['close'] = df_new['close'].astype(float)
-            unproc_datetime = df_new.datetime.iloc[0]
-            df_old = await self.db.get_prior_rows(exchange_code, unproc_datetime, table_name)
-            if len(df_old) == 0:
-                if self.log == True:
-                    print('data not found - get_prior_thirty_rows', table_name)
-                process_fresh = True
-            else:
-                df_new['open'] = df_new['open'].astype(float)
-                df_new['high'] = df_new['high'].astype(float)
-                df_new['low'] = df_new['low'].astype(float)
-                df_new['close'] = df_new['close'].astype(float)
-            await self.process_heikinashi(unproc_datetime, df_new, df_old, table_name, exchange_code)
-        
-        return 1, None, count
-    async def process_thirtymin_heikin(self, df_all_stocks):
-        print('in process_thirtymin_heikin')
-        count = 0
-        table_name = 'thirty_min_ohlc'
-        for index, row in df_all_stocks.iterrows():
-            count += 1
-            exchange_code = row['symbol']
-            df_new = await self.db.get_null_ohlc(exchange_code, table_name)
-            if len(df_new) == 0:
-                if self.log == True:
-                    print('NULL ohlc not found No need to process', exchange_code, table_name)
-                continue
-            else:
-                df_new['open'] = df_new['open'].astype(float)
-                df_new['high'] = df_new['high'].astype(float)
-                df_new['low'] = df_new['low'].astype(float)
-                df_new['close'] = df_new['close'].astype(float)
-            unproc_datetime = df_new.datetime.iloc[0]
-            df_old = await self.db.get_prior_rows(exchange_code, unproc_datetime, table_name)
-            if len(df_old) == 0:
-                if self.log == True:
-                    print('data not found - get_prior_thirty_rows', table_name)
-                process_fresh = True
-            else:
-                df_new['open'] = df_new['open'].astype(float)
-                df_new['high'] = df_new['high'].astype(float)
-                df_new['low'] = df_new['low'].astype(float)
-                df_new['close'] = df_new['close'].astype(float)
-            await self.process_heikinashi(unproc_datetime, df_new, df_old, table_name, exchange_code)
-        
-        return 1, None, count
-    async def process_hour_heikin(self, df_all_stocks):
-        print('in process_hour_heikin')
-        count = 0
-        table_name = 'one_hour_ohlc'
-        for index, row in df_all_stocks.iterrows():
-            count += 1
-            exchange_code = row['symbol']
-            df_new = await self.db.get_null_ohlc(exchange_code, table_name)
-            if len(df_new) == 0:
-                if self.log == True:
-                    print('NULL ohlc not found No need to process', exchange_code, table_name)
-                continue
-            else:
-                df_new['open'] = df_new['open'].astype(float)
-                df_new['high'] = df_new['high'].astype(float)
-                df_new['low'] = df_new['low'].astype(float)
-                df_new['close'] = df_new['close'].astype(float)
-            unproc_datetime = df_new.datetime.iloc[0]
-            df_old = await self.db.get_prior_rows(exchange_code, unproc_datetime, table_name)
-            if len(df_old) == 0:
-                if self.log == True:
-                    print('data not found - get_prior_thirty_rows', table_name)
-                process_fresh = True
-            else:
-                df_new['open'] = df_new['open'].astype(float)
-                df_new['high'] = df_new['high'].astype(float)
-                df_new['low'] = df_new['low'].astype(float)
-                df_new['close'] = df_new['close'].astype(float)
-            await self.process_heikinashi(unproc_datetime, df_new, df_old, table_name, exchange_code)
-        
-        return 1, None, count
-    async def process_PSAR(self, unproc_datetime, df_new, df_old, table, exchange_code):
-        print('in process_PSAR')
-        df_old.sort_values(by='datetime', inplace=True)
-        df_concatenated = pd.concat([df_old, df_new], ignore_index=True)
-        print('df_concatenated', df_concatenated)
-        # get from db af=0.02, max_af=0.2
-        ta_psar = ta.psar(high=df_concatenated['high'], low=df_concatenated['low'], close=df_concatenated['close'], af0=0.02, af=0.02, max_af=0.2)
-
-        df_concatenated['PSAR_D'] = ta_psar['PSARr_0.02_0.2']
-        df_concatenated['PSAR_L'] = ta_psar['PSARl_0.02_0.2']
-        df_concatenated['PSAR_S'] = ta_psar['PSARs_0.02_0.2']
-        df_concatenated['L'] = np.where(pd.isna(df_concatenated['PSAR_S']), 1, None)
-        df_concatenated['S'] = np.where(pd.isna(df_concatenated['PSAR_L']), 1, None)
-        df_concatenated['L'] = np.where(df_concatenated['PSAR_D'] == 1, df_concatenated.L, None)
-        df_concatenated['S'] = np.where(df_concatenated['PSAR_D'] == 1, df_concatenated.S, None)
-        df_concatenated['PSAR'] = df_concatenated['PSAR_L'].combine_first(df_concatenated['PSAR_S'])
-        
-        df_filtered = df_concatenated.loc[df_concatenated['datetime'] >= unproc_datetime]
-        df_filtered.dropna(subset=['PSAR'], inplace=True)
-
-        print('len df_filtered', len(df_filtered))
-        if len(df_filtered) == 0:
-            return
-        
-        updates = []
-        for index, row in df_filtered.iterrows():
-            datetime_val = row['datetime']
-            PSAR = row['PSAR']
-            PSAR_L = row['L']
-            PSAR_S = row['S']
-            if (PSAR_L != None) or (PSAR_S != None):
-                print(PSAR, PSAR_L, PSAR_S, datetime_val)
-            updates.append((PSAR, PSAR_L, PSAR_L, PSAR_S, PSAR_S, exchange_code, datetime_val))
-        if len(updates) > 0:
-            print(updates[0])
-            await self.db.update_PSAR_batch(updates, table)
-            print('after update_PSAR_batch')    
-    async def process_min_PSAR(self, df_all_stocks, interval):
-        print('in process_min_PSAR')
-        count = 0
-        table_name = 'one_min_ohlc'
-        if interval == '5minute':
-            table_name = 'five_min_ohlc'
-        if interval == '2minute':
-            table_name = 'two_min_ohlc'
-        elif interval == '3minute':
-            table_name = 'three_min_ohlc'
-        elif interval == '10minute':
-            table_name = 'ten_min_ohlc'
-        elif interval == '15minute':
-            table_name = 'fifteen_min_ohlc'
-        elif interval == '30minute':
-            table_name = 'thirty_min_ohlc'
-        elif interval == '60minute':
-            table_name = 'one_hour_ohlc'
-        for index, row in df_all_stocks.iterrows():
-            count += 1
-            exchange_code = row['symbol']
-            print(exchange_code);
-            df_new = await self.db.get_psar_null_ohlc(exchange_code, table_name)
-
-            print('len(dfnew)', len(df_new))
-            if len(df_new) == 0:
-                if self.log == True:
-                    print('PSAR NULL ohlc not found skipping', exchange_code, table_name)
-                continue
-            elif len(df_new) == 1:
-                df_new[['open', 'high', 'low', 'close']] = df_new[['open', 'high', 'low', 'close']].astype(float)                
-            else:
-                df_new = df_new[1:]             # Remove Outliars
-                df_new[['open', 'high', 'low', 'close']] = df_new[['open', 'high', 'low', 'close']].astype(float)
-            #print(df_new)
-            unproc_datetime = df_new.datetime.iloc[0]
-            print(f"{unproc_datetime=}")
-            df_old = await self.db.get_prior_rows_fifty(exchange_code, unproc_datetime, table_name)
-            if len(df_old) == 0:
-                if self.log == True:
-                    print('data not found - get_prior_rows_fifty', table_name, unproc_datetime)
-                process_fresh = True
-            else:
-                df_old[['open', 'high', 'low', 'close']] = df_old[['open', 'high', 'low', 'close']].astype(float)
-                print('len(df_old):', len(df_old))
-            await self.process_PSAR(unproc_datetime, df_new, df_old, table_name, exchange_code)
-        return 1, None, count    
     async def download_current_data(self):
         current_datetime = datetime.now()
         print(f"{current_datetime=}")
@@ -873,37 +621,249 @@ class Start(object):
             self.zerodha_last_trans = data[-1]['date'].replace(tzinfo=None).replace(second=0, microsecond=0)
         interval = 'minute'
         await self.download_ohlc_v2(self.df_priority_stocks, interval)
-        #await self.process_indicators_one_min(self.df_priority_stocks)
+        await self.run_alerts_check(interval)
         
         if current_datetime.minute % 2 == 0:
+            interval = '2minute'
             await self.download_ohlc_2min(self.df_priority_stocks)
-            #await self.process_indicators_two_min(self.df_priority_stocks)
-
+            await self.run_alerts_check(interval)
         if current_datetime.minute % 3 == 0:
-            await self.download_ohlc_v2(self.df_priority_stocks, '3minute')
-            #await self.process_indicators_three_min(self.df_priority_stocks)
+            interval = '3minute'
+            await self.download_ohlc_v2(self.df_priority_stocks, interval)
+            await self.run_alerts_check(interval)
         if current_datetime.minute % 5 == 0:
-            await self.download_ohlc_v2(self.df_priority_stocks, '5minute')
-            #await self.process_indicators_five_min(self.df_priority_stocks)
+            interval = '5minute'
+            await self.download_ohlc_v2(self.df_priority_stocks, interval)
+            await self.run_alerts_check(interval)
 
         if current_datetime.minute % 10 == 0:
-            await self.download_ohlc_v2(self.df_priority_stocks, '10minute')
-            #await self.process_indicators_ten_min(self.df_priority_stocks)
+            interval = '10minute'
+            await self.download_ohlc_v2(self.df_priority_stocks, interval)
+            await self.run_alerts_check(interval)
         if current_datetime.minute % 15 == 0:
-            await self.download_ohlc_v2(self.df_priority_stocks, '15minute')
-            #await self.process_indicators_fifteen_min(self.df_priority_stocks)
+            interval = '15minute'
+            await self.download_ohlc_v2(self.df_priority_stocks, interval)
+            await self.run_alerts_check(interval)
         if current_datetime.minute % 30 == 0:
-            await self.download_ohlc_v2(self.df_priority_stocks, '30minute')
-            #await self.process_indicators_thirty_min(self.df_priority_stocks)
+            interval = '30minute'
+            await self.download_ohlc_v2(self.df_priority_stocks, interval)
+            await self.run_alerts_check(interval)
         if current_datetime.minute == 15:
-            await self.download_ohlc_v2(self.df_priority_stocks, '60minute')
-            #await self.process_indicators_hour(self.df_priority_stocks)
+            interval = '60minute'
+            await self.download_ohlc_v2(self.df_priority_stocks, interval)
+            await self.run_alerts_check(interval)
     
+    async def checkAlerts_interval(self, interval, priority_stocks_tpl, hlfpid, PSAR_acceleration, PSAR_max_acceleration, stoch_period, k_avg, d_avg, psarCandles, LineThreshold, signaldirection, lrcangletype, lrcanglestart, lrcangleend, scanID, lrc_period, lrc_stdev):
+        print('in CheckAlerts_interval:', interval)
+        info = f"{PSAR_acceleration=} {PSAR_max_acceleration=} {stoch_period=} {k_avg=} {d_avg=} {psarCandles=} {LineThreshold=}"
+        await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='start', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+        info = f"{signaldirection=} {lrcangletype=} {lrcanglestart=} {lrcangleend=} {scanID=} {lrc_period=} {lrc_stdev=}"
+        await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='start', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+        for instrument_token, exchange_code in priority_stocks_tpl:
+            if exchange_code in self.data_collections[interval]:
+                data = self.data_collections[interval][exchange_code]
+                date_vals = None
+                if exchange_code in self.dates_collections[interval]:
+                    date_vals = self.dates_collections[interval][exchange_code]
+                else:
+                    info = f"{exchange_code=}"
+                    await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='dates not found', important_data=info, priority=4, strategy_trade_id = '', timestamp=datetime.now())
+                    continue
+                #print(exchange_code, date_vals[-1])
+                low = data[:,2]
+                high = data[:,1]
+                close = data[:,3]
+                LRL, UCL, LCL, angle_degrees = linear_regression_channel_numba(close, lrc_period, lrc_stdev)
+                info = f"{interval} {exchange_code} {LRL[-1]} {angle_degrees=}"
+                await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='linear_reg_channel', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+                psar_data = psar(high, low, close, af0=float(PSAR_acceleration), af=float(PSAR_acceleration), max_af=float(PSAR_max_acceleration))
+                signals = get_psar_signals(close, psar_data)
+                psar_signal = signals[-1]
+                K, D = calc_fastStochastics(low, high, close, stoch_period, k_avg, d_avg)
+
+                # K line crosses below ____ level and within ____ candles PSAR is positive 
+                # on a green HA candle 
+                # not crossing or touching middle LRC
+                last_n_elements = K[-psarCandles:]
+                crossover_index = -1  
+                for i in range(len(last_n_elements) - 1):
+                    if last_n_elements[i] > LineThreshold and last_n_elements[i + 1] <= LineThreshold:
+                        crossover_index = i + 1
+                if crossover_index == -1 or crossover_index == psarCandles:
+                    info = f'K crossover didnt occur, ignore {crossover_index=} {psarCandles=}'
+                    await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no crossover', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+                else:
+                    info = f"{crossover_index=} {psar_signal=} {signaldirection=}"
+                    await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='crossover', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+                    # put log
+                    if psar_signal == signaldirection: # signaldirection = 1 PSAR Signal is Long
+                        info = f"psar_signal: {psar_signal} == signaldirection: {signaldirection}"
+                        # Get last HA candle and cal color
+                        data_ha = self.ha_collection[interval][exchange_code]
+                        open_ha = data_ha[-1,0]
+                        high_ha = data_ha[-1,1]
+                        low_ha = data_ha[-1,2]
+                        close_ha = data_ha[-1,3]
+                        candle_color = 'g'
+                        if close_ha < open_ha:
+                            candle_color = 'r'
+                        
+                        LRL_value = LRL[-1]
+                        
+                        info = f"{open_ha=} {high_ha=} {low_ha=} {close_ha=} {LRL_value=} {candle_color=} {hlfpid=}"
+                        await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='ret HA data', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())                    
+                        digit_name =  self.interval_to_digit.get(interval, None)
+                        if hlfpid == 1:
+                            if candle_color == 'g' and high_ha < LRL_value:
+                                alert_timestamp = date_vals[-1]
+                                info = f"{hlfpid=} LRC angle_type: {lrcangletype} angle: {angle_degrees} > angle_start: {lrcanglestart} and < angle_end: {lrcangleend}"
+                                await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='if hlfpid=1', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())                    
+                                if lrcangletype == 'custom' and angle_degrees > lrcanglestart and angle_degrees < lrcangleend: 
+                                    info = f"Alert {exchange_code} {alert_timestamp} K crossover: {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}"
+                                    await self.db.insert_trade_log(date_log=self.today, module='alert custom angle', activity='Alert Generated', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())                                             
+                                    await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name)
+                                elif lrcangletype != 'custom':
+                                    info = f'Alert {exchange_code} {alert_timestamp} K crossover {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}'
+                                    await self.db.insert_trade_log(date_log=self.today, module='alert normal angle', activity='Alert Generated', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
+                                    await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name)
+                        elif hlfpid == 2:
+                            # green pin bar 
+                            no_lower_wick = low_ha == open_ha
+                            upper_wick = high_ha > close_ha
+                            if candle_color == 'g' and high_ha < LRL_value and no_lower_wick and upper_wick:
+                                info = f"Green pinbar color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {upper_wick=}"
+                                await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='if hlfpid=2', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+                                #digit_name =  interval_to_digit.get(interval, None)
+                                alert_timestamp = date_vals[-1]
+                                info = f"LRC angle_type: {lrcangletype} angle: {angle_degrees} > angle_start: {lrcanglestart} and angle: {angle_degrees} < angle_end: {lrcangleend}"
+                                await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='angle data', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+                                if lrcangletype == 'custom' and angle_degrees > lrcanglestart and angle_degrees < lrcangleend: 
+                                    info = f"Alert {exchange_code} {alert_timestamp} K crossover candle {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}"
+                                    print(info)                              
+                                    await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name)
+                                    await self.db.insert_trade_log(date_log=self.today, module='alert custom angle', activity='Alert Generated', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
+                                elif lrcangletype != 'custom':
+                                    info = f'Alert {exchange_code} {alert_timestamp} K crossover {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}'
+                                    print(info)                                  
+                                    await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name)
+                                    await self.db.insert_trade_log(date_log=self.today, module='alert normal angle', activity='Alert Generated', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
+                            else:
+                                info = f"in else color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {upper_wick=}"
+                                await self.db.insert_trade_log(date_log=self.today, module='alert normal angle', activity='cond not met', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+                        elif hlfpid == 3:
+                            # Third condition - wickless
+                            no_upper_wick = high_ha == close_ha
+                            no_lower_wick = low_ha == open_ha
+                            if candle_color == 'g' and high_ha < LRL_value and no_lower_wick and no_upper_wick:
+                                info = f"Wickless color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {no_upper_wick=}"
+                                print(info)
+                                # insert into db
+                                #digit_name =  interval_to_digit.get(interval, None)
+                                alert_timestamp = date_vals[-1]
+                                info = f"LRC angle_type: {lrcangletype} angle: {angle_degrees} > angle_start: {lrcanglestart} and angle: {angle_degrees} < angle_end: {lrcangleend}"
+                                #print(info)
+                                if lrcangletype == 'custom' and angle_degrees > lrcanglestart and angle_degrees < lrcangleend: 
+                                    info = f"Alert {exchange_code} {alert_timestamp} K crossover candle {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}"
+                                    print(info)                              
+                                    await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name)
+                                elif lrcangletype != 'custom':
+                                    info = f'Alert {exchange_code} {alert_timestamp} K crossover {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}'
+                                    print(info)                                  
+                                    await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name)
+                            else:
+                                info = f"Not Wickless color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {no_upper_wick=}"
+                                await self.db.insert_trade_log(date_log=self.today, module='alert wickless', activity='cond not met', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+                    else:
+                        info = f"NOT psarsignal: {psar_signal} == signaldirection: {signaldirection}"
+                        await self.db.insert_trade_log(date_log=self.today, module='alert normal angle', activity='no psar', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+
+    async def run_alerts_check(self, interval):
+        for index, row in self.df_scan_items.iterrows():
+            scanID = row['scanID']
+            conditionID = row['conditionID'] 
+            one_min = bool(row['1min'])   
+            two_min = bool(row['2min']) 
+            three_min = bool(row['3min'])  
+            five_min = bool(row['5min'])  
+            ten_min = bool(row['10min'])  
+            fifteen_min = bool(row['15min'])  
+            thirty_min = bool(row['30min'])  
+            sixty_min = bool(row['60min'])
+            condition_filtered = self.df_conditions[self.df_conditions['id'] == conditionID]
+            if len(condition_filtered) == 0:
+                continue
+            
+            lrcid = condition_filtered['lrcid'].iloc[0]
+            lrc_filtered = self.df_custom_indicators[self.df_custom_indicators.id == lrcid]
+            lrc_values = lrc_filtered['value'].iloc[0]
+            period_str, standard_deviation_str = lrc_values.split(',')
+            lrc_period = int(period_str.strip())
+            lrc_stdev = float(standard_deviation_str.strip())
+            
+            psarid = condition_filtered['psarid'].iloc[0] 
+            psar_filtered = self.df_custom_indicators[self.df_custom_indicators.id == psarid]
+            psar_values = psar_filtered['value'].iloc[0]
+            acceleration_str, max_acceleration_str = psar_values.split(',')
+            PSAR_acceleration = float(acceleration_str.strip())
+            PSAR_max_acceleration = float(max_acceleration_str) 
+
+            stochid = condition_filtered['stochid'].iloc[0] 
+            stoch_filtered = self.df_custom_indicators[self.df_custom_indicators.id == stochid]
+            stoch_values = stoch_filtered['value'].iloc[0]
+            
+            period_str, k_avg_str, d_avg_str = stoch_values.split(',')
+            stoch_period = float(period_str)
+            k_avg = float(k_avg_str)
+            d_avg = float(d_avg_str)
+            
+            #print(f"{stoch_period=} {k_avg=} {d_avg=}")
+            lrcangletype = condition_filtered['lrcangletype'].iloc[0] 
+            lrcanglestart = condition_filtered['lrcanglestart'].iloc[0] 
+            lrcangleend = condition_filtered['lrcangleend'].iloc[0] 
+            signaldirection = condition_filtered['signaldirection'].iloc[0] 
+            #signalColor = condition_filtered['signalColor'].iloc[0] 
+            
+            hlfpid = condition_filtered['hlfpid'].iloc[0]
+            LineThreshold = self.df_HLFP['kLineThresholdOne'].iloc[0]
+            psarCandles =  self.df_HLFP['psarCandlesOne'].iloc[0]
+            
+            if hlfpid == 2:
+                LineThreshold = self.df_HLFP['kLineThresholdTwo'].iloc[0]
+                psarCandles =  self.df_HLFP['psarCandlesTwo'].iloc[0]
+            elif hlfpid == 3:
+                LineThreshold = self.df_HLFP['kLineThresholdThree'].iloc[0]
+                psarCandles =  self.df_HLFP['psarCandlesThree'].iloc[0]
+
+            #print(f"{LineThreshold=} {psarCandles=}")
+            if one_min and interval == 'minute':
+                print(f"{interval} {scanID=}")
+                await self.checkAlerts_interval(interval, self.priority_stocks_tpl, hlfpid, PSAR_acceleration, PSAR_max_acceleration, stoch_period, k_avg, d_avg, psarCandles, LineThreshold, signaldirection, lrcangletype, lrcanglestart, lrcangleend, scanID, lrc_period, lrc_stdev)
+            if two_min and interval == '2minute':
+                print(f"{interval} {scanID=}")
+                await self.checkAlerts_interval(interval, self.priority_stocks_tpl, hlfpid, PSAR_acceleration, PSAR_max_acceleration, stoch_period, k_avg, d_avg, psarCandles, LineThreshold, signaldirection, lrcangletype, lrcanglestart, lrcangleend, scanID, lrc_period, lrc_stdev)
+            if three_min and interval == '3minute':
+                print(f"{interval} {scanID=}")
+                await self.checkAlerts_interval(interval, self.priority_stocks_tpl, hlfpid, PSAR_acceleration, PSAR_max_acceleration, stoch_period, k_avg, d_avg, psarCandles, LineThreshold, signaldirection, lrcangletype, lrcanglestart, lrcangleend, scanID, lrc_period, lrc_stdev)
+            if five_min and interval == '5minute':
+                print(f"{interval} {scanID=}")
+                await self.checkAlerts_interval(interval, self.priority_stocks_tpl, hlfpid, PSAR_acceleration, PSAR_max_acceleration, stoch_period, k_avg, d_avg, psarCandles, LineThreshold, signaldirection, lrcangletype, lrcanglestart, lrcangleend, scanID, lrc_period, lrc_stdev)
+            if ten_min and interval == '10minute':
+                print(f"{interval} {scanID=}")
+                await self.checkAlerts_interval(interval, self.priority_stocks_tpl, hlfpid, PSAR_acceleration, PSAR_max_acceleration, stoch_period, k_avg, d_avg, psarCandles, LineThreshold, signaldirection, lrcangletype, lrcanglestart, lrcangleend, scanID, lrc_period, lrc_stdev)
+            if fifteen_min and interval == '15minute':
+                print(f"{interval} {scanID=}")
+                await self.checkAlerts_interval(interval, self.priority_stocks_tpl, hlfpid, PSAR_acceleration, PSAR_max_acceleration, stoch_period, k_avg, d_avg, psarCandles, LineThreshold, signaldirection, lrcangletype, lrcanglestart, lrcangleend, scanID, lrc_period, lrc_stdev)
+            if thirty_min and interval == '30minute':
+                print(f"{interval} {scanID=}")
+                await self.checkAlerts_interval(interval, self.priority_stocks_tpl, hlfpid, PSAR_acceleration, PSAR_max_acceleration, stoch_period, k_avg, d_avg, psarCandles, LineThreshold, signaldirection, lrcangletype, lrcanglestart, lrcangleend, scanID, lrc_period, lrc_stdev)
+            if sixty_min and interval == '60minute':
+                print(f"{interval} {scanID=}")
+                await self.checkAlerts_interval(interval, self.priority_stocks_tpl, hlfpid, PSAR_acceleration, PSAR_max_acceleration, stoch_period, k_avg, d_avg, psarCandles, LineThreshold, signaldirection, lrcangletype, lrcanglestart, lrcangleend, scanID, lrc_period, lrc_stdev)
 async def main():
     start = Start()
     await start.start_pool()
-    priority_stocks_tpl = await start.db.get_priority_instruments_to_trade()
-    start.df_priority_stocks = pd.DataFrame(priority_stocks_tpl, columns=['instrument_token', 'symbol'])
+    start.priority_stocks_tpl = await start.db.get_priority_instruments_to_trade()
+    start.df_priority_stocks = pd.DataFrame(start.priority_stocks_tpl, columns=['instrument_token', 'symbol'])
     all_symbols = start.df_priority_stocks['symbol'].to_list()
 
     for interval, table_name in start.interval_to_table.items():
@@ -917,7 +877,12 @@ async def main():
                 datetime_list = group_df['datetime'].tolist()
                 start.dates_collections[interval][s_value] = datetime_list
     
-    # return
+    start.df_scan_items = await start.db.get_scan_items()
+    start.df_custom_indicators = await start.db.get_custom_indicators()
+    start.df_conditions = await start.db.get_conditions()
+    start.df_HLFP = await start.db.get_hlfp()
+    #await start.run_alerts_check('minute')
+    #return
     while True:
         CurrentDateTime = datetime.now()
         current_time = CurrentDateTime.time()
