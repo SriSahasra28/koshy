@@ -699,6 +699,10 @@ class Start(object):
                     if psar_signal == signaldirection: # signaldirection = 1 PSAR Signal is Long
                         info = f"psar_signal: {psar_signal} == signaldirection: {signaldirection}"
                         # Get last HA candle and cal color
+                        if exchange_code not in self.ha_collection[interval]:
+                            info = "{exchange_code} not in ha_collection {interval}"
+                            await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='get ha values', important_data=info, priority=4, strategy_trade_id = '', timestamp=datetime.now())
+                            continue
                         data_ha = self.ha_collection[interval][exchange_code]
                         open_ha = data_ha[-1,0]
                         high_ha = data_ha[-1,1]
