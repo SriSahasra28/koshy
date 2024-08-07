@@ -778,7 +778,6 @@ async def main():
         print('get_pre_market_steps before 5 PM')
 
     print('Pre Market Steps', df)
-    return
     for index, row in df.iterrows():
         id = row['id']
         action = row['action']
