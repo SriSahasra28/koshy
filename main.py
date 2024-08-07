@@ -689,6 +689,10 @@ class Start(object):
                 for i in range(len(last_n_elements) - 1):
                     if last_n_elements[i] > LineThreshold and last_n_elements[i + 1] <= LineThreshold:
                         crossover_index = i + 1
+                    elif last_n_elements[i + 1] > LineThreshold:
+                        crossover_index = -1
+                if crossover_index > -1:
+                    crossover_index = psarCandles - crossover_index
                 if crossover_index == -1 or crossover_index == psarCandles:
                     info = f'K crossover didnt occur, ignore {crossover_index=} {psarCandles=}'
                     await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no crossover', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
