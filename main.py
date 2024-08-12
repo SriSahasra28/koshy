@@ -654,7 +654,7 @@ class Start(object):
             interval = '30minute'
             await self.download_ohlc_v2(self.df_priority_stocks, interval)
             await self.run_alerts_check(interval)
-        if current_datetime.minute == 15:
+        if current_datetime.minute >= 15 and current_datetime.minute < 20:
             interval = '60minute'
             info = 'begin to download 1 hour data'
             await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='begin', important_data=info, priority=2, strategy_trade_id = '', timestamp=current_datetime)
