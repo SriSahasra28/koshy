@@ -308,29 +308,34 @@ class Start(object):
             try:
                 print(f"{end_date_now=}, {self.end_date_today=}")
                 if cutoff_datetime >= end_date_now:
-                    print(f"skipping cutoff_datetime:{cutoff_datetime} >= end_date_now:{end_date_now}", instrument_token)
+                    info = f"skipping cutoff_datetime:{cutoff_datetime} >= end_date_now:{end_date_now} {instrument_token}"
+                    await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='skip', important_data=info, priority=2, strategy_trade_id = '', timestamp=end_date_now)
                     continue
                 elif interval == '60minute':
                     exptime = cutoff_datetime + timedelta(hours=1)
                     print(f"{exptime=}")
                     if exptime > self.end_date_today:
-                        print(f'skipping {exptime=}', instrument_token)
+                        info = f"skipping exptime: {exptime} > end_date_today: {self.end_date_today} {instrument_token=}"
+                        await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='skip', important_data=info, priority=2, strategy_trade_id = '', timestamp=end_date_now)
                         continue
                 print(f"{exchange_code} {last_datetime=}, {self.end_date_today=}")
                 
                 if self.zerodha_last_trans != None and last_datetime >= self.zerodha_last_trans:
-                    print('skipping last_datetime >= zerodha_last_trans ', exchange_code)
+                    info = f"skipping last_datetime:{last_datetime} >= zerodha_last_trans:{self.zerodha_last_trans} {exchange_code}"
+                    await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='skip', important_data=info, priority=2, strategy_trade_id = '', timestamp=end_date_now)
                     continue
                 else:
                     print(f"process as NOT last_datetime:{last_datetime} >= zerodha_last_trans: {self.zerodha_last_trans}")
 
                 status, data, Error = await self.get_data_zerodha_recursive_list(interval, last_datetime, self.end_date_today, instrument_token, exchange_code)
             except Exception as e:
-                print('Error in downloading', exchange_code, e)
-                await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='get_data_zerodha', important_data=exchange_code, priority=2, strategy_trade_id = '', timestamp=end_date_now)
+                info = f"Error in downloading {exchange_code} {e}"
+                await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='get_data_zerodha', important_data=info, priority=2, strategy_trade_id = '', timestamp=end_date_now)
                 result = -1
 
             if status == 1 and len(data) > 0:
+                info = f"{len(data)} rows downloaded {exchange_code} {interval}"
+                await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='data downloaded', important_data=info, priority=2, strategy_trade_id = '', timestamp=end_date_now)
                 result = 1
             else:
                 info = 'len data = 0'
@@ -650,6 +655,8 @@ class Start(object):
             await self.run_alerts_check(interval)
         if current_datetime.minute == 15:
             interval = '60minute'
+            info = 'begin to download 1 hour data'
+            await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='begin', important_data=info, priority=2, strategy_trade_id = '', timestamp=current_datetime)
             await self.download_ohlc_v2(self.df_priority_stocks, interval)
             await self.run_alerts_check(interval)
     
