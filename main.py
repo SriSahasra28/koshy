@@ -172,6 +172,7 @@ class Start(object):
         self.sdate = datetime.now()
         #self.sdate_iso = self.sdate.isoformat()[:10] + 'T09:15:00.000Z'
         self.log = True
+        self.alertLog = False
         self.trade =True
         self.run_job = True
         self.initiate_time = tm(9,15,1)
@@ -661,11 +662,13 @@ class Start(object):
             await self.run_alerts_check(interval)
     
     async def checkAlerts_interval(self, interval, priority_stocks_tpl, hlfpid, PSAR_acceleration, PSAR_max_acceleration, stoch_period, k_avg, d_avg, psarCandles, LineThreshold, signaldirection, lrcangletype, lrcanglestart, lrcangleend, scanID, lrc_period, lrc_stdev):
-        print('in CheckAlerts_interval:', interval)
-        info = f"{PSAR_acceleration=} {PSAR_max_acceleration=} {stoch_period=} {k_avg=} {d_avg=} {psarCandles=} {LineThreshold=}"
-        await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='start', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
-        info = f"{signaldirection=} {lrcangletype=} {lrcanglestart=} {lrcangleend=} {scanID=} {lrc_period=} {lrc_stdev=}"
-        await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='start', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+        #print('in CheckAlerts_interval:', interval)
+        info = ''
+        if self.alertLog:
+            info = f"{PSAR_acceleration=} {PSAR_max_acceleration=} {stoch_period=} {k_avg=} {d_avg=} {psarCandles=} {LineThreshold=}"
+            await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='start', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+            info = f"{signaldirection=} {lrcangletype=} {lrcanglestart=} {lrcangleend=} {scanID=} {lrc_period=} {lrc_stdev=}"
+            await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='start', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
         for instrument_token, exchange_code in priority_stocks_tpl:
             if exchange_code in self.data_collections[interval]:
                 data = self.data_collections[interval][exchange_code]
@@ -673,16 +676,18 @@ class Start(object):
                 if exchange_code in self.dates_collections[interval]:
                     date_vals = self.dates_collections[interval][exchange_code]
                 else:
-                    info = f"{exchange_code=}"
-                    await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='dates not found', important_data=info, priority=4, strategy_trade_id = '', timestamp=datetime.now())
+                    if self.alertLog:
+                        info = f"{exchange_code=}"
+                        await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='dates not found', important_data=info, priority=4, strategy_trade_id = '', timestamp=datetime.now())
                     continue
                 #print(exchange_code, date_vals[-1])
                 low = data[:,2]
                 high = data[:,1]
                 close = data[:,3]
                 LRL, UCL, LCL, angle_degrees = linear_regression_channel_numba(close, lrc_period, lrc_stdev)
-                info = f"{interval} {exchange_code} {LRL[-1]} {angle_degrees=}"
-                await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='linear_reg_channel', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+                if self.alertLog:
+                    info = f"{interval} {exchange_code} {LRL[-1]} {angle_degrees=}"
+                    await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='linear_reg_channel', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
                 psar_data = psar(high, low, close, af0=float(PSAR_acceleration), af=float(PSAR_acceleration), max_af=float(PSAR_max_acceleration))
                 signals = get_psar_signals(close, psar_data)
                 psar_signal = signals[-1]
@@ -701,18 +706,21 @@ class Start(object):
                 if crossover_index > -1:
                     crossover_index = psarCandles - crossover_index
                 if crossover_index == -1 or crossover_index == psarCandles:
-                    info = f'K crossover didnt occur, ignore {crossover_index=} {psarCandles=}'
-                    await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no crossover', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+                    if self.alertLog:
+                        info = f'K crossover didnt occur, ignore {crossover_index=} {psarCandles=}'
+                        await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no crossover', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
                 else:
-                    info = f"{crossover_index=} {psar_signal=} {signaldirection=}"
-                    await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='crossover', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+                    if self.alertLog:
+                        info = f"{crossover_index=} {psar_signal=} {signaldirection=}"
+                        await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='crossover', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
                     # put log
                     if psar_signal == signaldirection: # signaldirection = 1 PSAR Signal is Long
                         info = f"psar_signal: {psar_signal} == signaldirection: {signaldirection}"
                         # Get last HA candle and cal color
                         if exchange_code not in self.ha_collection[interval]:
-                            info = "{exchange_code} not in ha_collection {interval}"
-                            await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='get ha values', important_data=info, priority=4, strategy_trade_id = '', timestamp=datetime.now())
+                            if self.alertLog:
+                                info = "{exchange_code} not in ha_collection {interval}"
+                                await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='get ha values', important_data=info, priority=4, strategy_trade_id = '', timestamp=datetime.now())
                             continue
                         data_ha = self.ha_collection[interval][exchange_code]
                         open_ha = data_ha[-1,0]
@@ -724,15 +732,16 @@ class Start(object):
                             candle_color = 'r'
                         
                         LRL_value = LRL[-1]
-                        
-                        info = f"{open_ha=} {high_ha=} {low_ha=} {close_ha=} {LRL_value=} {candle_color=} {hlfpid=}"
-                        await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='ret HA data', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())                    
+                        if self.alertLog:
+                            info = f"{open_ha=} {high_ha=} {low_ha=} {close_ha=} {LRL_value=} {candle_color=} {hlfpid=}"
+                            await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='ret HA data', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())                    
                         digit_name =  self.interval_to_digit.get(interval, None)
                         if hlfpid == 1:
                             if candle_color == 'g' and high_ha < LRL_value:
                                 alert_timestamp = date_vals[-1]
-                                info = f"{hlfpid=} LRC angle_type: {lrcangletype} angle: {angle_degrees} > angle_start: {lrcanglestart} and < angle_end: {lrcangleend}"
-                                await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='if hlfpid=1', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())                    
+                                if self.alertLog:
+                                    info = f"{hlfpid=} LRC angle_type: {lrcangletype} angle: {angle_degrees} > angle_start: {lrcanglestart} and < angle_end: {lrcangleend}"
+                                    await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='if hlfpid=1', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())                    
                                 if lrcangletype == 'custom' and angle_degrees > lrcanglestart and angle_degrees < lrcangleend: 
                                     info = f"Alert {exchange_code} {alert_timestamp} K crossover: {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}"
                                     await self.db.insert_trade_log(date_log=self.today, module='alert custom angle', activity='Alert Generated', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())                                             
@@ -746,12 +755,14 @@ class Start(object):
                             no_lower_wick = low_ha == open_ha
                             upper_wick = high_ha > close_ha
                             if candle_color == 'g' and high_ha < LRL_value and no_lower_wick and upper_wick:
-                                info = f"Green pinbar color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {upper_wick=}"
-                                await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='if hlfpid=2', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+                                if self.alertLog:
+                                    info = f"Green pinbar color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {upper_wick=}"
+                                    await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='if hlfpid=2', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
                                 #digit_name =  interval_to_digit.get(interval, None)
                                 alert_timestamp = date_vals[-1]
-                                info = f"LRC angle_type: {lrcangletype} angle: {angle_degrees} > angle_start: {lrcanglestart} and angle: {angle_degrees} < angle_end: {lrcangleend}"
-                                await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='angle data', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+                                if self.alertLog:
+                                    info = f"LRC angle_type: {lrcangletype} angle: {angle_degrees} > angle_start: {lrcanglestart} and angle: {angle_degrees} < angle_end: {lrcangleend}"
+                                    await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='angle data', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
                                 if lrcangletype == 'custom' and angle_degrees > lrcanglestart and angle_degrees < lrcangleend: 
                                     info = f"Alert {exchange_code} {alert_timestamp} K crossover candle {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}"
                                     print(info)                              
@@ -763,8 +774,9 @@ class Start(object):
                                     await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name)
                                     await self.db.insert_trade_log(date_log=self.today, module='alert normal angle', activity='Alert Generated', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
                             else:
-                                info = f"in else color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {upper_wick=}"
-                                await self.db.insert_trade_log(date_log=self.today, module='alert normal angle', activity='cond not met', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+                                if self.alertLog:
+                                    info = f"in else color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {upper_wick=}"
+                                    await self.db.insert_trade_log(date_log=self.today, module='alert normal angle', activity='cond not met', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
                         elif hlfpid == 3:
                             # Third condition - wickless
                             no_upper_wick = high_ha == close_ha
@@ -786,11 +798,13 @@ class Start(object):
                                     print(info)                                  
                                     await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name)
                             else:
-                                info = f"Not Wickless color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {no_upper_wick=}"
-                                await self.db.insert_trade_log(date_log=self.today, module='alert wickless', activity='cond not met', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+                                if self.alertLog:
+                                    info = f"Not Wickless color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {no_upper_wick=}"
+                                    await self.db.insert_trade_log(date_log=self.today, module='alert wickless', activity='cond not met', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
                     else:
-                        info = f"NOT psarsignal: {psar_signal} == signaldirection: {signaldirection}"
-                        await self.db.insert_trade_log(date_log=self.today, module='alert normal angle', activity='no psar', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+                        if self.alertLog:
+                            info = f"NOT psarsignal: {psar_signal} == signaldirection: {signaldirection}"
+                            await self.db.insert_trade_log(date_log=self.today, module='alert normal angle', activity='no psar', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
 
     async def run_alerts_check(self, interval):
         for index, row in self.df_scan_items.iterrows():
@@ -851,28 +865,28 @@ class Start(object):
 
             #print(f"{LineThreshold=} {psarCandles=}")
             if one_min and interval == 'minute':
-                print(f"{interval} {scanID=}")
+                #print(f"{interval} {scanID=}")
                 await self.checkAlerts_interval(interval, self.priority_stocks_tpl, hlfpid, PSAR_acceleration, PSAR_max_acceleration, stoch_period, k_avg, d_avg, psarCandles, LineThreshold, signaldirection, lrcangletype, lrcanglestart, lrcangleend, scanID, lrc_period, lrc_stdev)
             if two_min and interval == '2minute':
-                print(f"{interval} {scanID=}")
+                #print(f"{interval} {scanID=}")
                 await self.checkAlerts_interval(interval, self.priority_stocks_tpl, hlfpid, PSAR_acceleration, PSAR_max_acceleration, stoch_period, k_avg, d_avg, psarCandles, LineThreshold, signaldirection, lrcangletype, lrcanglestart, lrcangleend, scanID, lrc_period, lrc_stdev)
             if three_min and interval == '3minute':
-                print(f"{interval} {scanID=}")
+                #print(f"{interval} {scanID=}")
                 await self.checkAlerts_interval(interval, self.priority_stocks_tpl, hlfpid, PSAR_acceleration, PSAR_max_acceleration, stoch_period, k_avg, d_avg, psarCandles, LineThreshold, signaldirection, lrcangletype, lrcanglestart, lrcangleend, scanID, lrc_period, lrc_stdev)
             if five_min and interval == '5minute':
-                print(f"{interval} {scanID=}")
+                #print(f"{interval} {scanID=}")
                 await self.checkAlerts_interval(interval, self.priority_stocks_tpl, hlfpid, PSAR_acceleration, PSAR_max_acceleration, stoch_period, k_avg, d_avg, psarCandles, LineThreshold, signaldirection, lrcangletype, lrcanglestart, lrcangleend, scanID, lrc_period, lrc_stdev)
             if ten_min and interval == '10minute':
-                print(f"{interval} {scanID=}")
+                #print(f"{interval} {scanID=}")
                 await self.checkAlerts_interval(interval, self.priority_stocks_tpl, hlfpid, PSAR_acceleration, PSAR_max_acceleration, stoch_period, k_avg, d_avg, psarCandles, LineThreshold, signaldirection, lrcangletype, lrcanglestart, lrcangleend, scanID, lrc_period, lrc_stdev)
             if fifteen_min and interval == '15minute':
-                print(f"{interval} {scanID=}")
+                #print(f"{interval} {scanID=}")
                 await self.checkAlerts_interval(interval, self.priority_stocks_tpl, hlfpid, PSAR_acceleration, PSAR_max_acceleration, stoch_period, k_avg, d_avg, psarCandles, LineThreshold, signaldirection, lrcangletype, lrcanglestart, lrcangleend, scanID, lrc_period, lrc_stdev)
             if thirty_min and interval == '30minute':
-                print(f"{interval} {scanID=}")
+                #print(f"{interval} {scanID=}")
                 await self.checkAlerts_interval(interval, self.priority_stocks_tpl, hlfpid, PSAR_acceleration, PSAR_max_acceleration, stoch_period, k_avg, d_avg, psarCandles, LineThreshold, signaldirection, lrcangletype, lrcanglestart, lrcangleend, scanID, lrc_period, lrc_stdev)
             if sixty_min and interval == '60minute':
-                print(f"{interval} {scanID=}")
+                #print(f"{interval} {scanID=}")
                 await self.checkAlerts_interval(interval, self.priority_stocks_tpl, hlfpid, PSAR_acceleration, PSAR_max_acceleration, stoch_period, k_avg, d_avg, psarCandles, LineThreshold, signaldirection, lrcangletype, lrcanglestart, lrcangleend, scanID, lrc_period, lrc_stdev)
 async def main():
     start = Start()
