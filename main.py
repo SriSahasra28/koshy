@@ -290,9 +290,11 @@ class Start(object):
             # Get Last datetime for the symbol in database already downloaded
             if exchange_code in self.dates_collections[interval]:
                 last_datetime = cutoff_datetime = self.dates_collections[interval][exchange_code][-1].replace(second=0, microsecond=0)
-                print('cache datetime available', cutoff_datetime)  
+                info = f"cache datetime available {cutoff_datetime=}{exchange_code}{interval}"
+                await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='check cache', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now()) 
             else:
-                print('no cache')
+                info = f"No cache {exchange_code}{interval}"
+                await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='check cache', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now()) 
                 last_datetime = datetime.today() - timedelta(days=90)
                 last_datetime = last_datetime.replace(hour=9, minute=15, second=0, microsecond=0)
                 cutoff_datetime = last_datetime
@@ -626,38 +628,52 @@ class Start(object):
         if status == 1:
             self.zerodha_last_trans = data[-1]['date'].replace(tzinfo=None).replace(second=0, microsecond=0)
         interval = 'minute'
+        info = f'begin to download {interval} data'
+        await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='begin', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
         await self.download_ohlc_v2(self.df_priority_stocks, interval)
         await self.run_alerts_check(interval)
         
         if current_datetime.minute % 2 == 0:
             interval = '2minute'
+            info = f'begin to download {interval} data'
+            await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='begin', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
             await self.download_ohlc_2min(self.df_priority_stocks)
             await self.run_alerts_check(interval)
         if current_datetime.minute % 3 == 0:
             interval = '3minute'
+            info = f'begin to download {interval} data'
+            await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='begin', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
             await self.download_ohlc_v2(self.df_priority_stocks, interval)
             await self.run_alerts_check(interval)
         if current_datetime.minute % 5 == 0:
             interval = '5minute'
+            info = f'begin to download {interval} data'
+            await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='begin', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
             await self.download_ohlc_v2(self.df_priority_stocks, interval)
             await self.run_alerts_check(interval)
 
         if current_datetime.minute % 10 == 0:
             interval = '10minute'
+            info = f'begin to download {interval} data'
+            await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='begin', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
             await self.download_ohlc_v2(self.df_priority_stocks, interval)
             await self.run_alerts_check(interval)
         if current_datetime.minute % 15 == 0:
             interval = '15minute'
+            info = f'begin to download {interval} data'
+            await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='begin', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
             await self.download_ohlc_v2(self.df_priority_stocks, interval)
             await self.run_alerts_check(interval)
         if current_datetime.minute % 30 == 0:
             interval = '30minute'
+            info = f'begin to download {interval} data'
+            await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='begin', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
             await self.download_ohlc_v2(self.df_priority_stocks, interval)
             await self.run_alerts_check(interval)
         if current_datetime.minute >= 15 and current_datetime.minute < 20:
             interval = '60minute'
-            info = 'begin to download 1 hour data'
-            await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='begin', important_data=info, priority=2, strategy_trade_id = '', timestamp=current_datetime)
+            info = f'begin to download {interval} data'
+            await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='begin', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
             await self.download_ohlc_v2(self.df_priority_stocks, interval)
             await self.run_alerts_check(interval)
     
@@ -891,6 +907,7 @@ class Start(object):
 async def main():
     start = Start()
     await start.start_pool()
+    start_time = time.time()
     start.priority_stocks_tpl = await start.db.get_priority_instruments_to_trade()
     start.df_priority_stocks = pd.DataFrame(start.priority_stocks_tpl, columns=['instrument_token', 'symbol'])
     all_symbols = start.df_priority_stocks['symbol'].to_list()
@@ -910,6 +927,10 @@ async def main():
     start.df_custom_indicators = await start.db.get_custom_indicators()
     start.df_conditions = await start.db.get_conditions()
     start.df_HLFP = await start.db.get_hlfp()
+    end_time = time.time()  
+    total_time = end_time - start_time
+    info = f"{total_time=}"
+    await start.db.insert_trade_log(date_log=start.today, module='initial DataLoad', activity='start', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
     #await start.run_alerts_check('minute')
     #return
     while True:
