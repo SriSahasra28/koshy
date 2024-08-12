@@ -202,8 +202,8 @@ class Start(object):
         self.df_priority_stocks = None
         self.zerodha_last_trans = None
         self.interval_to_digit = {
-                'minute': '1 min','2minute': '2 min', '5minute': '5 min', '3minute': '3 min', '10minute': '10 min',
-                '15minute': '15 min', '30minute': '30 min', '60minute': '1 hour'
+                'minute': '1','2minute': '2', '5minute': '5', '3minute': '3', '10minute': '10',
+                '15minute': '15', '30minute': '30', '60minute': '60'
             }
         self.df_scan_items = None
         self.df_custom_indicators = None
