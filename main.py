@@ -911,18 +911,39 @@ async def main():
     start.priority_stocks_tpl = await start.db.get_priority_instruments_to_trade()
     start.df_priority_stocks = pd.DataFrame(start.priority_stocks_tpl, columns=['instrument_token', 'symbol'])
     all_symbols = start.df_priority_stocks['symbol'].to_list()
+    all_symbols_set = set(all_symbols)
 
     for interval, table_name in start.interval_to_table.items():
         prvdata = await start.db.get_old_data_limit(table_name)
+        unique_symbols = prvdata['symbol'].unique()
+        unique_symbols_set = set(unique_symbols)
+        missing_symbols = all_symbols_set - unique_symbols_set
+        missing_symbols_list = list(missing_symbols)
+
         for s_value, group_df in prvdata.groupby('symbol'):
             if s_value in all_symbols:
-                group_df = group_df.tail(500)
+                l = len(group_df)
+                if l < 400:
+                    missing_symbols_list.append(s_value)
+                else:
+                    group_df = group_df.tail(500)
+                    ohlc_np = group_df[['open', 'high', 'low', 'close']].values.astype(float)
+                    start.data_collections[interval][s_value] = ohlc_np
+                    group_df['datetime'] = pd.to_datetime(group_df['datetime'])
+                    datetime_list = group_df['datetime'].tolist()
+                    start.dates_collections[interval][s_value] = datetime_list
+        for symbol in missing_symbols_list:
+            group_df = await start.db.get_old_data_by_symbol(table_name, symbol)
+            if len(group_df) > 0:
                 ohlc_np = group_df[['open', 'high', 'low', 'close']].values.astype(float)
-                start.data_collections[interval][s_value] = ohlc_np
+                start.data_collections[interval][symbol] = ohlc_np
                 group_df['datetime'] = pd.to_datetime(group_df['datetime'])
                 datetime_list = group_df['datetime'].tolist()
-                start.dates_collections[interval][s_value] = datetime_list
-    
+                start.dates_collections[interval][symbol] = datetime_list
+            else:
+                info = f'Data not found for {symbol} {table_name}'
+                await start.db.insert_trade_log(date_log=start.today, module='main', activity='cache creation', important_data=info, priority=4, strategy_trade_id = '', timestamp=datetime.now()) 
+
     start.df_scan_items = await start.db.get_scan_items()
     start.df_custom_indicators = await start.db.get_custom_indicators()
     start.df_conditions = await start.db.get_conditions()

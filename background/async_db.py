@@ -474,7 +474,19 @@ class dbconnection:
             df = df[::-1] # reverse as its desc order
             df = df.sort_values(by='datetime')
         return df
-    
+
+    async def get_old_data_by_symbol(self, table_name, symbol):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(f"Select datetime, open, high, low, close FROM {table_name} where symbol = '{symbol}' ORDER BY datetime DESC LIMIT 500;")
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        if len(df) > 0:
+            df = df[::-1] # reverse as its desc order
+            df = df.sort_values(by='datetime')
+        return df
+
     async def get_old_data_priority(self, table_name):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
@@ -853,7 +865,6 @@ class dbconnection:
                 await cur.execute(query)
                 data = await cur.fetchall()
         return data
-    
     
 
     async def get_non_priority_instruments_to_trade(self):
