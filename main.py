@@ -295,9 +295,22 @@ class Start(object):
             else:
                 info = f"No cache {exchange_code}{interval}"
                 await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='check cache', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now()) 
-                last_datetime = datetime.today() - timedelta(days=90)
-                last_datetime = last_datetime.replace(hour=9, minute=15, second=0, microsecond=0)
-                cutoff_datetime = last_datetime
+                group_df = await self.db.get_old_data_by_symbol(table_name, exchange_code)
+                if len(group_df) > 0:
+                    info = f"Data found in db {exchange_code}{interval} {len(group_df)} rows"
+                    await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='get_old_data_by_symbol', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now()) 
+                    ohlc_np = group_df[['open', 'high', 'low', 'close']].values.astype(float)
+                    self.data_collections[interval][exchange_code] = ohlc_np
+                    group_df['datetime'] = pd.to_datetime(group_df['datetime'])
+                    datetime_list = group_df['datetime'].tolist()
+                    self.dates_collections[interval][exchange_code] = datetime_list
+                    last_datetime = cutoff_datetime = self.dates_collections[interval][exchange_code][-1].replace(second=0, microsecond=0)
+                else:
+                    info = f"Data not found in db {exchange_code}{interval}"
+                    await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='get_old_data_by_symbol', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now()) 
+                    last_datetime = datetime.today() - timedelta(days=90)
+                    last_datetime = last_datetime.replace(hour=9, minute=15, second=0, microsecond=0)
+                    cutoff_datetime = last_datetime
 
             print(f"{exchange_code} {last_datetime=}")
 
