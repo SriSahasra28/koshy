@@ -642,11 +642,19 @@ class Start(object):
         if status == 1:
             self.zerodha_last_trans = data[-1]['date'].replace(tzinfo=None).replace(second=0, microsecond=0)
         interval = 'minute'
-        info = f'begin to download {interval} data'
-        await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='begin', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
+        start_time = time.time()
         await self.download_ohlc_v2(self.df_priority_stocks, interval)
-        await self.run_alerts_check(interval)
+        end_time = time.time()  
+        total_time = end_time - start_time
+        info = f'{total_time=} to download {interval} data'
+        await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
         
+        start_time = time.time()
+        await self.run_alerts_check(interval)
+        end_time = time.time()  
+        total_time = end_time - start_time
+        info = f'{total_time=} to run_alerts_check {interval}'
+        await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
         if current_datetime.minute % 2 == 0:
             interval = '2minute'
             info = f'begin to download {interval} data'
