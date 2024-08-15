@@ -284,7 +284,7 @@ class Start(object):
             exchange_code = row['symbol']
             instrument_token = row['instrument_token'] # new added
             #current_time = datetime.now().strftime("%H:%M:%S")
-            #print(current_time, exchange_code)
+            print(exchange_code)
             
             last_datetime = None
             
@@ -346,12 +346,14 @@ class Start(object):
                 status, data, Error = await self.get_data_zerodha_recursive_list(interval, last_datetime, self.end_date_today, instrument_token, exchange_code)
             except Exception as e:
                 info = f"Error in downloading {exchange_code} {e}"
+                #print(info)
                 await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='get_data_zerodha', important_data=info, priority=2, strategy_trade_id = '', timestamp=end_date_now)
                 result = -1
 
             if status == 1 and len(data) > 0:
-                info = f"{len(data)} rows downloaded {exchange_code} {interval}"
-                await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='data downloaded', important_data=info, priority=2, strategy_trade_id = '', timestamp=end_date_now)
+                #info = f"{len(data)} rows downloaded {exchange_code} {interval}"
+                #print(info)
+                #await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='data downloaded', important_data=info, priority=2, strategy_trade_id = '', timestamp=end_date_now)
                 result = 1
             else:
                 info = 'len data = 0'
@@ -372,6 +374,7 @@ class Start(object):
                 await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='get_data_zerodha', important_data=info, priority=2, strategy_trade_id = '', timestamp=end_date_now)
                 #print('invalid token skipping processing')
                 #await asyncio.sleep(0.25)
+                #print(info)
                 continue        
 
             dates_new = []
@@ -405,9 +408,11 @@ class Start(object):
             data_np_new[:,1] = np.array(highs)
             data_np_new[:,2] = np.array(lows)
             data_np_new[:,3] = np.array(closes)
+
             if len(data_np_new) == 0:
-                #print('No Data to process skipping')
+                #print('data_np_new = 0 No Data to process skipping')
                 continue
+
             data_combined = data_np_new
 
             if exchange_code in self.data_collections[interval]:
@@ -430,12 +435,138 @@ class Start(object):
                 self.data_collections[interval][exchange_code] = data_combined
 
             #print('len data_combined:', len(data_combined), 'len dates_combined:', len(dates_combined))
-            
+            #print("calculate heikin_ashi_numpy")
             # calculate indicators
             ha_open, ha_high, ha_low, ha_close = heikin_ashi_numpy(data_combined[:,0], data_combined[:,1], data_combined[:,2], data_combined[:,3])
             ha_combined = np.column_stack((ha_open, ha_high, ha_low, ha_close))
-            self.ha_collection[interval][exchange_code] = ha_combined
+            # ----------------------- Disabled for testing -------------------------
+            #self.ha_collection[interval][exchange_code] = ha_combined
+            # ------------------- Insert Alert Code here --------------------------------
+            #print(f'Alert code begin {exchange_code}')
+            digit_name =  self.interval_to_digit.get(interval, None)
+            column_name = str(digit_name) + 'min'
+            df_items = self.df_scan_items[self.df_scan_items[column_name] == 1]
+            alert_check = True
+            if df_items.empty:
+                print(f'df_items empty skip {exchange_code}')
+                # insert in db
+                alert_check = False
+            conditions = df_items.conditionID.unique()
+            if len(conditions) == 0:
+                info = f'No conditions to process {exchange_code}'
+                print(info)
+                # Write db code
+                alert_check = False
+            if alert_check:
+                #print(f'Alert check true {exchange_code}')
+                for conditionID in conditions:
+                    #print(f"processing condition {conditionID}")
+                    condition_filtered = self.df_conditions[self.df_conditions['id'] == conditionID]
+                    scanID = df_items.loc[(df_items[column_name] == 1) & (df_items['conditionID'] == conditionID), 'scanID'].iloc[0]     
+                    lrcid = condition_filtered['lrcid'].iloc[0]
+                    lrc_filtered = self.df_custom_indicators[self.df_custom_indicators.id == lrcid]
+                    lrc_values = lrc_filtered['value'].iloc[0]
+                    period_str, standard_deviation_str = lrc_values.split(',')
+                    lrc_period = int(period_str.strip())
+                    lrc_stdev = float(standard_deviation_str.strip())
+                    
+                    psarid = condition_filtered['psarid'].iloc[0] 
+                    psar_filtered = self.df_custom_indicators[self.df_custom_indicators.id == psarid]
+                    psar_values = psar_filtered['value'].iloc[0]
+                    acceleration_str, max_acceleration_str = psar_values.split(',')
+                    PSAR_acceleration = float(acceleration_str.strip())
+                    PSAR_max_acceleration = float(max_acceleration_str) 
 
+                    stochid = condition_filtered['stochid'].iloc[0] 
+                    stoch_filtered = self.df_custom_indicators[self.df_custom_indicators.id == stochid]
+                    stoch_values = stoch_filtered['value'].iloc[0]
+                    
+                    period_str, k_avg_str, d_avg_str = stoch_values.split(',')
+                    stoch_period = float(period_str)
+                    k_avg = float(k_avg_str)
+                    d_avg = float(d_avg_str)
+                    
+                    lrcangletype = condition_filtered['lrcangletype'].iloc[0] 
+                    lrcanglestart = condition_filtered['lrcanglestart'].iloc[0] 
+                    lrcangleend = condition_filtered['lrcangleend'].iloc[0] 
+                    signaldirection = condition_filtered['signaldirection'].iloc[0] 
+                    hlfpid = condition_filtered['hlfpid'].iloc[0]
+
+                    LineThreshold, psarCandles = await self.get_hlfp_values(hlfpid)
+                    
+                    # ------------- data is already available ------------
+                    #date_vals = self.dates_collections[interval][exchange_code]
+                    #data = self.data_collections[interval][exchange_code]
+                    # ----------------------------------------------------------
+                    low = data_combined[:,2]
+                    high = data_combined[:,1]
+                    close = data_combined[:,3]
+                    LRL, UCL, LCL, angle_degrees = linear_regression_channel_numba(close, lrc_period, lrc_stdev)
+                    # if self.alertLog:
+                    info = f"{interval} {exchange_code} {LRL[-1]} {angle_degrees=}"
+                    #print(info)
+                    #     await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='linear_reg_channel', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+                    
+                    psar_data = psar(high, low, close, af0=float(PSAR_acceleration), af=float(PSAR_acceleration), max_af=float(PSAR_max_acceleration))
+                    signals = get_psar_signals(close, psar_data)
+                    psar_signal = signals[-1]
+                    K, D = calc_fastStochastics(low, high, close, stoch_period, k_avg, d_avg)
+                    crossover_index = await self.get_crossover_index(K, LineThreshold, psarCandles)
+                    if crossover_index == -1 or crossover_index == psarCandles:
+                        #print(f"processing {exchange_code}")
+                        info = f'K crossover didnt occur, ignore {crossover_index=} {psarCandles=}'
+                        #print(info)
+                        #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no crossover', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+                    else:
+                        #print(f"processing {exchange_code}")
+                        info = f"{crossover_index=} {psar_signal=} {signaldirection=}"
+                        #print(info)
+                        #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='crossover', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+                        if psar_signal == signaldirection: # signaldirection = 1 PSAR Signal is Long
+                            info = f"psar_signal: {psar_signal} == signaldirection: {signaldirection}"
+                            #print(info)
+                              
+                            open_ha = ha_combined[-1,0]
+                            high_ha = ha_combined[-1,1]
+                            low_ha = ha_combined[-1,2]
+                            close_ha = ha_combined[-1,3]
+                            candle_color = 'g'
+                            if close_ha < open_ha:
+                                candle_color = 'r'
+                            
+                            LRL_value = LRL[-1]
+                            info = f"{open_ha=} {high_ha=} {low_ha=} {close_ha=} {LRL_value=} {candle_color=} {hlfpid=}"
+                            #print(info)
+                            
+                            #print(f"{hlfpid=}")
+                            alert_timestamp = dates_combined[-1]
+                            if hlfpid == 1:
+                                if candle_color == 'g' and high_ha < LRL_value:
+                                    await self.process_alert(exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name)
+                                # else:
+                                #     info = f"NOT color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value}"
+                                #     print(info)
+                            elif hlfpid == 2:
+                                no_lower_wick = low_ha == open_ha
+                                upper_wick = high_ha > close_ha
+                                if candle_color == 'g' and high_ha < LRL_value and no_lower_wick and upper_wick:
+                                    await self.process_alert(exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name)
+                                # else:
+                                #     info = f"Not color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {upper_wick=}"
+                                #     print(info)
+                            elif hlfpid == 3:
+                                no_upper_wick = high_ha == close_ha
+                                no_lower_wick = low_ha == open_ha
+                                if candle_color == 'g' and high_ha < LRL_value and no_lower_wick and no_upper_wick:
+                                    await self.process_alert(exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name)
+                                # else:
+                                #     info = f"Not Wickless color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {no_upper_wick=}"
+                                #     print(info)
+                        # else:
+                        #     info = f"NOT psarsignal: {psar_signal} == signaldirection: {signaldirection}"
+                        #     print(info)
+
+            # Continue with downloading code
             index_start = 0
             if cutoff_datetime in dates_combined:
                 index_start = dates_combined.index(cutoff_datetime)
@@ -649,12 +780,12 @@ class Start(object):
         info = f'{total_time=} to download {interval} data'
         await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
         
-        start_time = time.time()
-        await self.run_alerts_check(interval)
-        end_time = time.time()  
-        total_time = end_time - start_time
-        info = f'{total_time=} to run_alerts_check {interval}'
-        await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
+        # start_time = time.time()
+        # await self.run_alerts_check(interval)
+        # end_time = time.time()  
+        # total_time = end_time - start_time
+        # info = f'{total_time=} to run_alerts_check {interval}'
+        # await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
         if current_datetime.minute % 2 == 0:
             interval = '2minute'
             info = f'begin to download {interval} data'
@@ -666,38 +797,38 @@ class Start(object):
             info = f'begin to download {interval} data'
             await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='begin', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
             await self.download_ohlc_v2(self.df_priority_stocks, interval)
-            await self.run_alerts_check(interval)
+            #await self.run_alerts_check(interval)
         if current_datetime.minute % 5 == 0:
             interval = '5minute'
             info = f'begin to download {interval} data'
             await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='begin', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
             await self.download_ohlc_v2(self.df_priority_stocks, interval)
-            await self.run_alerts_check(interval)
+            #await self.run_alerts_check(interval)
 
         if current_datetime.minute % 10 == 0:
             interval = '10minute'
             info = f'begin to download {interval} data'
             await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='begin', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
             await self.download_ohlc_v2(self.df_priority_stocks, interval)
-            await self.run_alerts_check(interval)
+            #await self.run_alerts_check(interval)
         if current_datetime.minute % 15 == 0:
             interval = '15minute'
             info = f'begin to download {interval} data'
             await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='begin', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
             await self.download_ohlc_v2(self.df_priority_stocks, interval)
-            await self.run_alerts_check(interval)
+            #await self.run_alerts_check(interval)
         if current_datetime.minute % 30 == 0:
             interval = '30minute'
             info = f'begin to download {interval} data'
             await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='begin', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
             await self.download_ohlc_v2(self.df_priority_stocks, interval)
-            await self.run_alerts_check(interval)
+            #await self.run_alerts_check(interval)
         if current_datetime.minute >= 15 and current_datetime.minute < 20:
             interval = '60minute'
             info = f'begin to download {interval} data'
             await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='begin', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
             await self.download_ohlc_v2(self.df_priority_stocks, interval)
-            await self.run_alerts_check(interval)
+            #await self.run_alerts_check(interval)
     
     async def checkAlerts_interval(self, interval, priority_stocks_tpl, hlfpid, PSAR_acceleration, PSAR_max_acceleration, stoch_period, k_avg, d_avg, psarCandles, LineThreshold, signaldirection, lrcangletype, lrcanglestart, lrcangleend, scanID, lrc_period, lrc_stdev):
         #print('in CheckAlerts_interval:', interval)
