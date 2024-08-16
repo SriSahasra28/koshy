@@ -1058,6 +1058,39 @@ class Start(object):
                 #print(f"{interval} {scanID=}")
                 await self.checkAlerts_interval(interval, self.priority_stocks_tpl, hlfpid, PSAR_acceleration, PSAR_max_acceleration, stoch_period, k_avg, d_avg, psarCandles, LineThreshold, signaldirection, lrcangletype, lrcanglestart, lrcangleend, scanID, lrc_period, lrc_stdev)
 
+    async def get_hlfp_values(self, hlfpid):
+        if hlfpid == 1:
+            return self.df_HLFP['kLineThresholdOne'].iloc[0], self.df_HLFP['psarCandlesOne'].iloc[0]
+        elif hlfpid == 2:
+            return self.df_HLFP['kLineThresholdTwo'].iloc[0], self.df_HLFP['psarCandlesTwo'].iloc[0]
+        elif hlfpid == 3:
+            return self.df_HLFP['kLineThresholdThree'].iloc[0], self.df_HLFP['psarCandlesThree'].iloc[0]
+
+    async def get_crossover_index(self, K, LineThreshold, psarCandles):
+        last_n_elements = K[-psarCandles:]
+        crossover_index = -1
+        for i in range(len(last_n_elements) - 1):
+            if last_n_elements[i] > LineThreshold and last_n_elements[i + 1] <= LineThreshold:
+                crossover_index = i + 1
+            elif last_n_elements[i + 1] > LineThreshold:
+                crossover_index = -1
+        return psarCandles - crossover_index if crossover_index > -1 else crossover_index
+
+    async def process_alert(self, exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name):
+        if lrcangletype == 'custom' and lrcanglestart < angle_degrees < lrcangleend:
+            info = f"Alert {exchange_code} {alert_timestamp} K crossover: {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}"
+            print(info)
+            await self.db.insert_trade_log(date_log=self.today, module='alert custom angle', activity='Alert Generated', important_data=info, priority=5, strategy_trade_id='', timestamp=datetime.now())
+            await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name)
+        elif lrcangletype != 'custom':
+            info = f'Alert {exchange_code} {alert_timestamp} K crossover {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}'
+            print(info)
+            await self.db.insert_trade_log(date_log=self.today, module='alert normal angle', activity='Alert Generated', important_data=info, priority=5, strategy_trade_id='', timestamp=datetime.now())
+            await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name)
+        else:
+            info = f"NOT {exchange_code} {alert_timestamp} K crossover: {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}"
+            print(info)
+
 async def main():
     start = Start()
     await start.start_pool()
