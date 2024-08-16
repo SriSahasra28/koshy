@@ -442,25 +442,33 @@ class Start(object):
             # ----------------------- Disabled for testing -------------------------
             #self.ha_collection[interval][exchange_code] = ha_combined
             # ------------------- Insert Alert Code here --------------------------------
-            #print(f'Alert code begin {exchange_code}')
+            info = f'Alert code begin {exchange_code} {interval}'
+            print(info)
+            await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='start alert code', important_data=info, priority=1, strategy_trade_id = '', timestamp=end_date_now)
             digit_name =  self.interval_to_digit.get(interval, None)
             column_name = str(digit_name) + 'min'
             df_items = self.df_scan_items[self.df_scan_items[column_name] == 1]
             alert_check = True
             if df_items.empty:
-                print(f'df_items empty skip {exchange_code}')
+                info = f'df_items empty skip {exchange_code}'
+                print(info)
+                await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='no alert items', important_data=info, priority=5, strategy_trade_id = '', timestamp=end_date_now)
                 # insert in db
                 alert_check = False
             conditions = df_items.conditionID.unique()
             if len(conditions) == 0:
                 info = f'No conditions to process {exchange_code}'
+                await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='no conditions', important_data=info, priority=5, strategy_trade_id = '', timestamp=end_date_now)
                 print(info)
                 # Write db code
                 alert_check = False
             if alert_check:
-                #print(f'Alert check true {exchange_code}')
+                info = f'Alert check true {exchange_code}'
+                print(info)
+                await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='alert check', important_data=info, priority=5, strategy_trade_id = '', timestamp=end_date_now)
                 for conditionID in conditions:
-                    #print(f"processing condition {conditionID}")
+                    info = f"processing condition {conditionID}"
+                    await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='process cond', important_data=info, priority=1, strategy_trade_id = '', timestamp=end_date_now)
                     condition_filtered = self.df_conditions[self.df_conditions['id'] == conditionID]
                     scanID = df_items.loc[(df_items[column_name] == 1) & (df_items['conditionID'] == conditionID), 'scanID'].iloc[0]     
                     lrcid = condition_filtered['lrcid'].iloc[0]
@@ -494,10 +502,6 @@ class Start(object):
 
                     LineThreshold, psarCandles = await self.get_hlfp_values(hlfpid)
                     
-                    # ------------- data is already available ------------
-                    #date_vals = self.dates_collections[interval][exchange_code]
-                    #data = self.data_collections[interval][exchange_code]
-                    # ----------------------------------------------------------
                     low = data_combined[:,2]
                     high = data_combined[:,1]
                     close = data_combined[:,3]
@@ -516,16 +520,16 @@ class Start(object):
                         #print(f"processing {exchange_code}")
                         info = f'K crossover didnt occur, ignore {crossover_index=} {psarCandles=}'
                         #print(info)
-                        #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no crossover', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+                        await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no crossover', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
                     else:
                         #print(f"processing {exchange_code}")
                         info = f"{crossover_index=} {psar_signal=} {signaldirection=}"
                         #print(info)
-                        #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='crossover', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+                        await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='crossover', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
                         if psar_signal == signaldirection: # signaldirection = 1 PSAR Signal is Long
                             info = f"psar_signal: {psar_signal} == signaldirection: {signaldirection}"
                             #print(info)
-                              
+                            await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='signal', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
                             open_ha = ha_combined[-1,0]
                             high_ha = ha_combined[-1,1]
                             low_ha = ha_combined[-1,2]
@@ -543,28 +547,32 @@ class Start(object):
                             if hlfpid == 1:
                                 if candle_color == 'g' and high_ha < LRL_value:
                                     await self.process_alert(exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name)
-                                # else:
-                                #     info = f"NOT color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value}"
-                                #     print(info)
+                                else:
+                                    info = f"NOT color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value}"
+                                    print(info)
+                                    await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no match', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
                             elif hlfpid == 2:
                                 no_lower_wick = low_ha == open_ha
                                 upper_wick = high_ha > close_ha
                                 if candle_color == 'g' and high_ha < LRL_value and no_lower_wick and upper_wick:
                                     await self.process_alert(exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name)
-                                # else:
-                                #     info = f"Not color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {upper_wick=}"
-                                #     print(info)
+                                else:
+                                    info = f"Not color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {upper_wick=}"
+                                    print(info)
+                                    await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no match', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
                             elif hlfpid == 3:
                                 no_upper_wick = high_ha == close_ha
                                 no_lower_wick = low_ha == open_ha
                                 if candle_color == 'g' and high_ha < LRL_value and no_lower_wick and no_upper_wick:
                                     await self.process_alert(exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name)
-                                # else:
-                                #     info = f"Not Wickless color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {no_upper_wick=}"
-                                #     print(info)
-                        # else:
-                        #     info = f"NOT psarsignal: {psar_signal} == signaldirection: {signaldirection}"
-                        #     print(info)
+                                else:
+                                    info = f"Not Wickless color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {no_upper_wick=}"
+                                    print(info)
+                                    await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no match', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
+                        else:
+                            info = f"NOT psarsignal: {psar_signal} == signaldirection: {signaldirection}"
+                            print(info)
+                            await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no signal', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
 
             # Continue with downloading code
             index_start = 0
@@ -1090,6 +1098,7 @@ class Start(object):
         else:
             info = f"NOT {exchange_code} {alert_timestamp} K crossover: {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}"
             print(info)
+            await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no angle', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
 
 async def main():
     start = Start()
