@@ -635,6 +635,7 @@ class Start(object):
                         Insert_thirty_min_ohlc_proc_batch.delay(batch_data)
                     elif table_name == 'one_hour_ohlc':
                         Insert_hour_ohlc_proc_batch.delay(batch_data)
+                    batch_data = []
             if batch_data:
                 if table_name == 'one_min_ohlc':
                     insert_one_min_ohlc_proc_batch.delay(batch_data)

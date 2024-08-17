@@ -17,6 +17,8 @@ instruments = instruments_class()
 import numpy as np
 import pandas_ta as ta
 from numba import jit
+from celery import Celery
+from myapp import batch_insert_trade_logs, insert_one_min_ohlc_proc_batch , Insert_three_min_ohlc_proc_batch, Insert_two_min_ohlc_proc_batch, Insert_five_min_ohlc_proc_batch, Insert_ten_min_ohlc_proc_batch, Insert_fifteen_min_ohlc_proc_batch, Insert_thirty_min_ohlc_proc_batch, Insert_hour_ohlc_proc_batch
 interval_to_table = {
     'minute': 'one_min_ohlc','2minute': 'two_min_ohlc', '5minute': 'five_min_ohlc', '3minute': 'three_min_ohlc', '10minute': 'ten_min_ohlc',
     '15minute': 'fifteen_min_ohlc', '30minute': 'thirty_min_ohlc', '60minute': 'one_hour_ohlc'
@@ -379,15 +381,16 @@ async def download_ohlc_2min(df_all_stocks):
             batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, ha_open, ha_high, ha_low, ha_close))
             
             if len(batch_data) >= BATCH_SIZE:
-                #print(exchange_code, batch_data)
-                task = asyncio.create_task(db.Insert_two_min_ohlc_proc_batch(batch_data))
-                tasks.append(task)
+                Insert_two_min_ohlc_proc_batch.delay(batch_data)
+                # task = asyncio.create_task(db.Insert_two_min_ohlc_proc_batch(batch_data))
+                # tasks.append(task)
                 batch_data = []
 
         if batch_data:
+            Insert_two_min_ohlc_proc_batch.delay(batch_data)
             #print(exchange_code, batch_data)
-            task = asyncio.create_task(db.Insert_two_min_ohlc_proc_batch(batch_data))
-            tasks.append(task)
+            # task = asyncio.create_task(db.Insert_two_min_ohlc_proc_batch(batch_data))
+            # tasks.append(task)
             if log == True:
                 print('insert_' + table_name, exchange_code, date_val)
             count += 1
@@ -546,68 +549,94 @@ async def download_ohlc_v2(df_all_stocks, interval):
             ha_close_val = ha_close[i]
             batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, ha_open_val, ha_high_val, ha_low_val, ha_close_val))
             #print('batch_data', batch_data)
-
             if len(batch_data) >= BATCH_SIZE:
-                current_time = datetime.now().strftime("%H:%M:%S")
-                print('insert_batch_data partial',current_time, ':', exchange_code)
                 if table_name == 'one_min_ohlc':
-                    task = asyncio.create_task(db.Insert_one_min_ohlc_proc_batch(batch_data))
-                    tasks.append(task)
+                    insert_one_min_ohlc_proc_batch.delay(batch_data)
                 elif table_name == 'three_min_ohlc':
-                    task = asyncio.create_task(db.Insert_three_min_ohlc_proc_batch(batch_data))
-                    tasks.append(task)
+                    Insert_three_min_ohlc_proc_batch.delay(batch_data)
                 elif table_name == 'five_min_ohlc':
-                    task = asyncio.create_task(db.Insert_five_min_ohlc_proc_batch(batch_data))
-                    tasks.append(task)
+                    Insert_five_min_ohlc_proc_batch.delay(batch_data)
                 elif table_name == 'ten_min_ohlc':
-                    task = asyncio.create_task(db.Insert_ten_min_ohlc_proc_batch(batch_data))
-                    tasks.append(task)
+                    Insert_ten_min_ohlc_proc_batch.delay(batch_data)
                 elif table_name == 'fifteen_min_ohlc':
-                    task = asyncio.create_task(db.Insert_fifteen_min_ohlc_proc_batch(batch_data))
-                    tasks.append(task)
+                    Insert_fifteen_min_ohlc_proc_batch.delay(batch_data)
                 elif table_name == 'thirty_min_ohlc':
-                    task = asyncio.create_task(db.Insert_thirty_min_ohlc_proc_batch(batch_data))
-                    tasks.append(task)
+                    Insert_thirty_min_ohlc_proc_batch.delay(batch_data)
                 elif table_name == 'one_hour_ohlc':
-                    task = asyncio.create_task(db.Insert_hour_ohlc_proc_batch(batch_data))
-                    tasks.append(task)
-                else:
-                    print('No appropraite function found to insert data ', table_name)
+                    Insert_hour_ohlc_proc_batch.delay(batch_data)
                 batch_data = []
-
         if batch_data:
-            current_time = datetime.now().strftime("%H:%M:%S")
-            print('insert_batch_data partial',current_time, ':', exchange_code)
             if table_name == 'one_min_ohlc':
-                task = asyncio.create_task(db.Insert_one_min_ohlc_proc_batch(batch_data))
-                tasks.append(task)
-                #await db.Insert_one_min_ohlc_proc_batch(batch_data)
+                insert_one_min_ohlc_proc_batch.delay(batch_data)
             elif table_name == 'three_min_ohlc':
-                task = asyncio.create_task(db.Insert_three_min_ohlc_proc_batch(batch_data))
-                tasks.append(task)
+                Insert_three_min_ohlc_proc_batch.delay(batch_data)
             elif table_name == 'five_min_ohlc':
-                task = asyncio.create_task(db.Insert_five_min_ohlc_proc_batch(batch_data))
-                tasks.append(task)
+                Insert_five_min_ohlc_proc_batch.delay(batch_data)
             elif table_name == 'ten_min_ohlc':
-                task = asyncio.create_task(db.Insert_ten_min_ohlc_proc_batch(batch_data))
-                tasks.append(task)
+                Insert_ten_min_ohlc_proc_batch.delay(batch_data)
             elif table_name == 'fifteen_min_ohlc':
-                task = asyncio.create_task(db.Insert_fifteen_min_ohlc_proc_batch(batch_data))
-                tasks.append(task)
+                Insert_fifteen_min_ohlc_proc_batch.delay(batch_data)
             elif table_name == 'thirty_min_ohlc':
-                task = asyncio.create_task(db.Insert_thirty_min_ohlc_proc_batch(batch_data))
-                tasks.append(task)
+                Insert_thirty_min_ohlc_proc_batch.delay(batch_data)
             elif table_name == 'one_hour_ohlc':
-                task = asyncio.create_task(db.Insert_hour_ohlc_proc_batch(batch_data))
-                tasks.append(task)
-            else:
-                print('No appropraite function found to insert data ', table_name)
-                #asyncio.create_task(db.insert_batch_data(table_name, batch_data))  # Run insert in background
-            #await db.insert_batch_data(table_name, batch_data)
+                Insert_hour_ohlc_proc_batch.delay(batch_data) 
+            batch_data = []
+        #     if len(batch_data) >= BATCH_SIZE:
+        #         current_time = datetime.now().strftime("%H:%M:%S")
+        #         print('insert_batch_data partial',current_time, ':', exchange_code)
+        #         if table_name == 'one_min_ohlc':
+        #             task = asyncio.create_task(db.Insert_one_min_ohlc_proc_batch(batch_data))
+        #             tasks.append(task)
+        #         elif table_name == 'three_min_ohlc':
+        #             task = asyncio.create_task(db.Insert_three_min_ohlc_proc_batch(batch_data))
+        #             tasks.append(task)
+        #         elif table_name == 'five_min_ohlc':
+        #             task = asyncio.create_task(db.Insert_five_min_ohlc_proc_batch(batch_data))
+        #             tasks.append(task)
+        #         elif table_name == 'ten_min_ohlc':
+        #             task = asyncio.create_task(db.Insert_ten_min_ohlc_proc_batch(batch_data))
+        #             tasks.append(task)
+        #         elif table_name == 'fifteen_min_ohlc':
+        #             task = asyncio.create_task(db.Insert_fifteen_min_ohlc_proc_batch(batch_data))
+        #             tasks.append(task)
+        #         elif table_name == 'thirty_min_ohlc':
+        #             task = asyncio.create_task(db.Insert_thirty_min_ohlc_proc_batch(batch_data))
+        #             tasks.append(task)
+        #         elif table_name == 'one_hour_ohlc':
+        #             task = asyncio.create_task(db.Insert_hour_ohlc_proc_batch(batch_data))
+        #             tasks.append(task)
+        #         batch_data = []
+
+        # if batch_data:
+        #     current_time = datetime.now().strftime("%H:%M:%S")
+        #     print('insert_batch_data partial',current_time, ':', exchange_code)
+        #     if table_name == 'one_min_ohlc':
+        #         task = asyncio.create_task(db.Insert_one_min_ohlc_proc_batch(batch_data))
+        #         tasks.append(task)
+        #         #await db.Insert_one_min_ohlc_proc_batch(batch_data)
+        #     elif table_name == 'three_min_ohlc':
+        #         task = asyncio.create_task(db.Insert_three_min_ohlc_proc_batch(batch_data))
+        #         tasks.append(task)
+        #     elif table_name == 'five_min_ohlc':
+        #         task = asyncio.create_task(db.Insert_five_min_ohlc_proc_batch(batch_data))
+        #         tasks.append(task)
+        #     elif table_name == 'ten_min_ohlc':
+        #         task = asyncio.create_task(db.Insert_ten_min_ohlc_proc_batch(batch_data))
+        #         tasks.append(task)
+        #     elif table_name == 'fifteen_min_ohlc':
+        #         task = asyncio.create_task(db.Insert_fifteen_min_ohlc_proc_batch(batch_data))
+        #         tasks.append(task)
+        #     elif table_name == 'thirty_min_ohlc':
+        #         task = asyncio.create_task(db.Insert_thirty_min_ohlc_proc_batch(batch_data))
+        #         tasks.append(task)
+        #     elif table_name == 'one_hour_ohlc':
+        #         task = asyncio.create_task(db.Insert_hour_ohlc_proc_batch(batch_data))
+        #         tasks.append(task)
+            
         else:
             print('no batch_data', exchange_code)
         print('done ', table_name,' ', exchange_code)
-        await asyncio.gather(*tasks)
+       #await asyncio.gather(*tasks)
     return 1, error, count_iter
 
 async def update_symbols_to_monitor():
