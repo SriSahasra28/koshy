@@ -862,7 +862,7 @@ async def main():
         last_execution = row['last_execution']
         print(f"{action=}")
 
-        if action == 'update_symbols_to_monitor' and rollover_status == 0:
+        if action == 'update_symbols_to_monitor' and rollover_status == 0 and datetime.now().hour < 10:
             result, error, count_symbol = await update_symbols_to_download()
             current_date_string = datetime.now().strftime("%Y-%m-%d")
             important_data = f"{result=} {error=} {count_symbol=} {id=}"
