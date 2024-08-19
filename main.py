@@ -1223,8 +1223,7 @@ async def main():
     if log_batch:
         batch_insert_trade_logs.delay(log_batch)
         log_batch= []
-    await start.download_ohlc_v2(start.df_priority_stocks, 'minute')
-    return
+
     while True:
         CurrentDateTime = datetime.now()
         current_time = CurrentDateTime.time()
