@@ -929,7 +929,8 @@ class Start(object):
         total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token = await self.download_ohlc_v2(self.df_priority_stocks, interval)
         end_time = time.time()  
         total_time = end_time - start_time
-        await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, interval, total_time)
+        digit_name =  self.interval_to_digit.get(interval, None)
+        await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, digit_name, total_time)
         # info = f'{total_time=} to download {interval} data'
         # await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
         
@@ -949,8 +950,9 @@ class Start(object):
             start_time = time.time()
             total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token = await self.download_ohlc_v2(self.df_priority_stocks, interval)
             end_time = time.time()  
-            total_time = end_time - start_time            
-            await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, interval, total_time)
+            total_time = end_time - start_time   
+            digit_name =  self.interval_to_digit.get(interval, None)         
+            await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, digit_name, total_time)
             #info = f'{total_time=} to download {interval} data'
             #log_batch_main.append((self.today, 'download_current_data', 'time_taken', info, 2, datetime.now()))
             #await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
@@ -962,7 +964,8 @@ class Start(object):
             total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token = await self.download_ohlc_v2(self.df_priority_stocks, interval)
             end_time = time.time()  
             total_time = end_time - start_time
-            await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, interval, total_time)            
+            digit_name =  self.interval_to_digit.get(interval, None)
+            await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, digit_name, total_time)            
             #info = f'{total_time=} to download {interval} data'
             #log_batch_main.append((self.today, 'download_current_data', 'time_taken', info, 2, datetime.now()))
             #await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
@@ -972,7 +975,8 @@ class Start(object):
             total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token = await self.download_ohlc_v2(self.df_priority_stocks, interval)
             end_time = time.time()
             total_time = end_time - start_time
-            await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, interval, total_time)               
+            digit_name =  self.interval_to_digit.get(interval, None)
+            await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, digit_name, total_time)               
 
             # info = f'{total_time=} to download {interval} data'
             #log_batch_main.append((self.today, 'download_current_data', 'time_taken', info, 2, datetime.now()))
@@ -983,7 +987,8 @@ class Start(object):
             total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token = await self.download_ohlc_v2(self.df_priority_stocks, interval)
             end_time = time.time()
             total_time = end_time - start_time
-            await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, interval, total_time)               
+            digit_name =  self.interval_to_digit.get(interval, None)
+            await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, digit_name, total_time)               
             #await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
         if current_datetime.minute % 30 == 0:
             interval = '30minute'
@@ -991,7 +996,8 @@ class Start(object):
             await self.download_ohlc_v2(self.df_priority_stocks, interval)
             end_time = time.time()  
             total_time = end_time - start_time
-            await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, interval, total_time)
+            digit_name =  self.interval_to_digit.get(interval, None)
+            await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, digit_name, total_time)
             #info = f'{total_time=} to download {interval} data'
             #log_batch_main.append((self.today, 'download_current_data', 'time_taken', info, 2, datetime.now()))
             #await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
@@ -1001,7 +1007,8 @@ class Start(object):
             await self.download_ohlc_v2(self.df_priority_stocks, interval)
             end_time = time.time()  
             total_time = end_time - start_time 
-            await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, interval, total_time)           
+            digit_name =  self.interval_to_digit.get(interval, None)
+            await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, digit_name, total_time)           
             #info = f'{total_time=} to download {interval} data'
             #log_batch_main.append((self.today, 'download_current_data', 'time_taken', info, 2, datetime.now()))
             #await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
