@@ -1012,7 +1012,7 @@ class Start(object):
     async def checkAlerts_interval(self, interval, priority_stocks_tpl, hlfpid, PSAR_acceleration, PSAR_max_acceleration, stoch_period, k_avg, d_avg, psarCandles, LineThreshold, signaldirection, lrcangletype, lrcanglestart, lrcangleend, scanID, lrc_period, lrc_stdev):
         #print('in CheckAlerts_interval:', interval)
         info = ''
-        if self.alertLog:
+        if self.loglevel >= 2:
             info = f"{PSAR_acceleration=} {PSAR_max_acceleration=} {stoch_period=} {k_avg=} {d_avg=} {psarCandles=} {LineThreshold=}"
             await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='start', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
             info = f"{signaldirection=} {lrcangletype=} {lrcanglestart=} {lrcangleend=} {scanID=} {lrc_period=} {lrc_stdev=}"
@@ -1033,7 +1033,7 @@ class Start(object):
                 high = data[:,1]
                 close = data[:,3]
                 LRL, UCL, LCL, angle_degrees = linear_regression_channel_numba(close, lrc_period, lrc_stdev)
-                if self.alertLog:
+                if self.loglevel >= 2:
                     info = f"{interval} {exchange_code} {LRL[-1]} {angle_degrees=}"
                     await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='linear_reg_channel', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
                 psar_data = psar(high, low, close, af0=float(PSAR_acceleration), af=float(PSAR_acceleration), max_af=float(PSAR_max_acceleration))
@@ -1054,11 +1054,11 @@ class Start(object):
                 if crossover_index > -1:
                     crossover_index = psarCandles - crossover_index
                 if crossover_index == -1 or crossover_index == psarCandles:
-                    if self.alertLog:
+                    if self.loglevel >= 2:
                         info = f'K crossover didnt occur, ignore {crossover_index=} {psarCandles=}'
                         await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no crossover', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
                 else:
-                    if self.alertLog:
+                    if self.loglevel >= 2:
                         info = f"{crossover_index=} {psar_signal=} {signaldirection=}"
                         await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='crossover', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
                     # put log
@@ -1066,7 +1066,7 @@ class Start(object):
                         info = f"psar_signal: {psar_signal} == signaldirection: {signaldirection}"
                         # Get last HA candle and cal color
                         if exchange_code not in self.ha_collection[interval]:
-                            if self.alertLog:
+                            if self.loglevel >= 1:
                                 info = "{exchange_code} not in ha_collection {interval}"
                                 await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='get ha values', important_data=info, priority=4, strategy_trade_id = '', timestamp=datetime.now())
                             continue
@@ -1080,24 +1080,24 @@ class Start(object):
                             candle_color = 'r'
                         
                         LRL_value = LRL[-1]
-                        if self.alertLog:
+                        if self.loglevel >= 2:
                             info = f"{open_ha=} {high_ha=} {low_ha=} {close_ha=} {LRL_value=} {candle_color=} {hlfpid=}"
                             await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='ret HA data', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())                    
                         digit_name =  self.interval_to_digit.get(interval, None)
                         if hlfpid == 1:
                             if candle_color == 'g' and high_ha < LRL_value:
                                 alert_timestamp = date_vals[-1]
-                                if self.alertLog:
+                                if self.loglevel >= 1:
                                     info = f"{hlfpid=} LRC angle_type: {lrcangletype} angle: {angle_degrees} > angle_start: {lrcanglestart} and < angle_end: {lrcangleend}"
                                     await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='if hlfpid=1', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())                    
                                 if lrcangletype == 'custom' and angle_degrees > lrcanglestart and angle_degrees < lrcangleend: 
                                     info = f"Alert {exchange_code} {alert_timestamp} K crossover: {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}"
                                     await self.db.insert_trade_log(date_log=self.today, module='alert custom angle', activity='Alert Generated', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())                                             
-                                    await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name)
+                                    await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name, datetime.now())
                                 elif lrcangletype != 'custom':
                                     info = f'Alert {exchange_code} {alert_timestamp} K crossover {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}'
                                     await self.db.insert_trade_log(date_log=self.today, module='alert normal angle', activity='Alert Generated', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
-                                    await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name)
+                                    await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name, datetime.now())
                         elif hlfpid == 2:
                             # green pin bar 
                             no_lower_wick = low_ha == open_ha
@@ -1114,12 +1114,12 @@ class Start(object):
                                 if lrcangletype == 'custom' and angle_degrees > lrcanglestart and angle_degrees < lrcangleend: 
                                     info = f"Alert {exchange_code} {alert_timestamp} K crossover candle {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}"
                                     print(info)                              
-                                    await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name)
+                                    await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name, datetime.now())
                                     await self.db.insert_trade_log(date_log=self.today, module='alert custom angle', activity='Alert Generated', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
                                 elif lrcangletype != 'custom':
                                     info = f'Alert {exchange_code} {alert_timestamp} K crossover {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}'
                                     print(info)                                  
-                                    await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name)
+                                    await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name, datetime.now())
                                     await self.db.insert_trade_log(date_log=self.today, module='alert normal angle', activity='Alert Generated', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
                             else:
                                 if self.alertLog:
@@ -1140,11 +1140,11 @@ class Start(object):
                                 if lrcangletype == 'custom' and angle_degrees > lrcanglestart and angle_degrees < lrcangleend: 
                                     info = f"Alert {exchange_code} {alert_timestamp} K crossover candle {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}"
                                     print(info)                              
-                                    await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name)
+                                    await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name, datetime.now())
                                 elif lrcangletype != 'custom':
                                     info = f'Alert {exchange_code} {alert_timestamp} K crossover {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}'
                                     print(info)                                  
-                                    await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name)
+                                    await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name, datetime.now())
                             else:
                                 if self.alertLog:
                                     info = f"Not Wickless color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {no_upper_wick=}"
