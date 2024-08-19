@@ -564,15 +564,10 @@ class Start(object):
                     low = data_combined[:,2]
                     high = data_combined[:,1]
                     close = data_combined[:,3]
-                    LRL, UCL, LCL, angle_degrees = linear_regression_channel_numba(close, lrc_period, lrc_stdev)
-                    if self.loglevel >= 2:
-                        info = f"{interval} {exchange_code} {LRL[-1]} {angle_degrees=}"
-                        log_batch.append((self.today, 'download_ohlc_v2', 'LRC', info, 2, datetime.now()))
-                    #     await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='linear_reg_channel', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
-                    
+                   
                     psar_data = psar(high, low, close, af0=float(PSAR_acceleration), af=float(PSAR_acceleration), max_af=float(PSAR_max_acceleration))
                     signals = get_psar_signals(close, psar_data)
-                    psar_signal = signals[-1]
+                    #psar_signal = signals[-1]
                     K, D = calc_fastStochastics(low, high, close, stoch_period, k_avg, d_avg)
                     crossover_index = await self.get_crossover_index(K, LineThreshold, psarCandles)
                     if crossover_index == -1 or crossover_index == psarCandles:
@@ -581,79 +576,87 @@ class Start(object):
                             log_batch.append((self.today, 'download_ohlc_v2', 'no crossover', info, 2, datetime.now()))
                             #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no crossover', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
                     else:
-                        if self.loglevel >= 2:
-                            info = f"{crossover_index=} {psar_signal=} {signaldirection=}"
-                            log_batch.append((self.today, 'download_ohlc_v2', 'crossover', info, 2, datetime.now()))
-                            #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='crossover', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
-                        if psar_signal == signaldirection: # signaldirection = 1 PSAR Signal is Long
-                            if self.loglevel >= 1:
-                                info = f"psar_signal: {psar_signal} == signaldirection: {signaldirection}"
-                                log_batch.append((self.today, 'download_ohlc_v2', 'signal', info, 2, datetime.now()))
-                                #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='signal', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
-                            open_ha = ha_combined[-1,0]
-                            high_ha = ha_combined[-1,1]
-                            low_ha = ha_combined[-1,2]
-                            close_ha = ha_combined[-1,3]
-                            candle_color = 'g'
-                            if close_ha < open_ha:
-                                candle_color = 'r'
-                            
-                            LRL_value = LRL[-1]
-                            
+                        for i in range(-crossover_index, 0):
+                            psar_signal = signals[i] # psar_signal = signals[-1]
                             if self.loglevel >= 2:
-                                info = f"{open_ha=} {high_ha=} {low_ha=} {close_ha=} {LRL_value=} {candle_color=} {hlfpid=}"
-                                log_batch.append((self.today, 'download_ohlc_v2', 'imp data', info, 2, datetime.now()))
-                            #print(f"{hlfpid=}")
-                            alert_timestamp = dates_combined[-1]
-                            if hlfpid == 1:
-                                if candle_color == 'g' and high_ha < LRL_value:
-                                    result = await self.process_alert(exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name)
-                                    if result == 1:
-                                        alerts_gen += 1
+                                info = f"{crossover_index=} {psar_signal=} {signaldirection=}"
+                                log_batch.append((self.today, 'download_ohlc_v2', 'crossover', info, 2, datetime.now()))
+                                #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='crossover', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
+                            if psar_signal == signaldirection: # signaldirection = 1 PSAR Signal is Long
+                                if self.loglevel >= 1:
+                                    info = f"psar_signal: {psar_signal} == signaldirection: {signaldirection}"
+                                    log_batch.append((self.today, 'download_ohlc_v2', 'signal', info, 2, datetime.now()))
+                                    #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='signal', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
+                                open_ha = ha_combined[i,0]
+                                high_ha = ha_combined[i,1]
+                                low_ha = ha_combined[i,2]
+                                close_ha = ha_combined[i,3]
+                                candle_color = 'g'
+                                if close_ha < open_ha:
+                                    candle_color = 'r'
+                                
+                                if i == -1:
+                                    sliced_close = close
+                                else:
+                                    sliced_close = close[:i + 1]
+                                LRL, UCL, LCL, angle_degrees = linear_regression_channel_numba(sliced_close, lrc_period, lrc_stdev)        
+                                LRL_value = LRL[-1]
+
+                                #LRL_value = LRL[-1]
+                                if self.loglevel >= 2:
+                                    info = f"{open_ha=} {high_ha=} {low_ha=} {close_ha=} {LRL_value=} {candle_color=} {hlfpid=}"
+                                    log_batch.append((self.today, 'download_ohlc_v2', 'imp data', info, 2, datetime.now()))
+                                #print(f"{hlfpid=}")
+                                alert_timestamp = dates_combined[i]
+                                if hlfpid == 1:
+                                    if candle_color == 'g' and high_ha < LRL_value:
+                                        result = await self.process_alert(exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name)
+                                        if result == 1:
+                                            alerts_gen += 1
+                                        else:
+                                            alerts_fail += 1
                                     else:
                                         alerts_fail += 1
-                                else:
-                                    alerts_fail += 1
-                                    if self.loglevel >= 1:
-                                        info = f"NOT color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value}"
-                                        log_batch.append((self.today, 'download_ohlc_v2', 'no match', info, 2, datetime.now()))
-                                        #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no match', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
-                            elif hlfpid == 2:
-                                no_lower_wick = low_ha == open_ha
-                                upper_wick = high_ha > close_ha
-                                if candle_color == 'g' and high_ha < LRL_value and no_lower_wick and upper_wick:
-                                    result = await self.process_alert(exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name)
-                                    if result == 1:
-                                        alerts_gen += 1
+                                        if self.loglevel >= 1:
+                                            info = f"NOT color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value}"
+                                            log_batch.append((self.today, 'download_ohlc_v2', 'no match', info, 2, datetime.now()))
+                                            #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no match', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
+                                elif hlfpid == 2:
+                                    no_lower_wick = low_ha == open_ha
+                                    upper_wick = high_ha > close_ha
+                                    if candle_color == 'g' and high_ha < LRL_value and no_lower_wick and upper_wick:
+                                        result = await self.process_alert(exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name)
+                                        if result == 1:
+                                            alerts_gen += 1
+                                        else:
+                                            alerts_fail += 1
                                     else:
                                         alerts_fail += 1
-                                else:
-                                    alerts_fail += 1
-                                    if self.loglevel >= 1:
-                                        info = f"Not color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {upper_wick=}"
-                                        log_batch.append((self.today, 'download_ohlc_v2', 'no match', info, 2, datetime.now()))
-                                        #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no match', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
-                            elif hlfpid == 3:
-                                no_upper_wick = high_ha == close_ha
-                                no_lower_wick = low_ha == open_ha
-                                if candle_color == 'g' and high_ha < LRL_value and no_lower_wick and no_upper_wick:
-                                    result = await self.process_alert(exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name)
-                                    if result == 1:
-                                        alerts_gen += 1
+                                        if self.loglevel >= 1:
+                                            info = f"Not color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {upper_wick=}"
+                                            log_batch.append((self.today, 'download_ohlc_v2', 'no match', info, 2, datetime.now()))
+                                            #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no match', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
+                                elif hlfpid == 3:
+                                    no_upper_wick = high_ha == close_ha
+                                    no_lower_wick = low_ha == open_ha
+                                    if candle_color == 'g' and high_ha < LRL_value and no_lower_wick and no_upper_wick:
+                                        result = await self.process_alert(exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name)
+                                        if result == 1:
+                                            alerts_gen += 1
+                                        else:
+                                            alerts_fail += 1
                                     else:
                                         alerts_fail += 1
-                                else:
-                                    alerts_fail += 1
-                                    if self.loglevel >= 1:
-                                        info = f"Not Wickless color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {no_upper_wick=}"
-                                        log_batch.append((self.today, 'download_ohlc_v2', 'no match', info, 2, datetime.now()))
-                                        #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no match', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
-                        else:
-                            alerts_fail += 1
-                            if self.loglevel >= 1:
-                                info = f"NOT psarsignal: {psar_signal} == signaldirection: {signaldirection}"
-                                log_batch.append((self.today, 'download_ohlc_v2', 'no signal', info, 2, datetime.now()))
-                                #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no signal', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
+                                        if self.loglevel >= 1:
+                                            info = f"Not Wickless color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {no_upper_wick=}"
+                                            log_batch.append((self.today, 'download_ohlc_v2', 'no match', info, 2, datetime.now()))
+                                            #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no match', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
+                            else:
+                                alerts_fail += 1
+                                if self.loglevel >= 1:
+                                    info = f"NOT psarsignal: {psar_signal} == signaldirection: {signaldirection}"
+                                    log_batch.append((self.today, 'download_ohlc_v2', 'no signal', info, 2, datetime.now()))
+                                    #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no signal', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
 
             # Continue with downloading code
             index_start = 0
