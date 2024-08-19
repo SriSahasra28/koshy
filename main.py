@@ -179,7 +179,7 @@ class Start(object):
         self.trade =True
         self.run_job = True
         self.initiate_time = tm(9,15,1)
-        self.exit_time = tm(15, 30)
+        self.exit_time = tm(15, 40)
         self.today = date.today()  
         self.today_str = self.today.strftime('%Y-%m-%d')
         self.yesterday = self.today - timedelta(days=1)
@@ -977,7 +977,8 @@ class Start(object):
             total_time = end_time - start_time
             digit_name =  self.interval_to_digit.get(interval, None)
             await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, digit_name, total_time)               
-
+            self.priority_stocks_tpl = await self.db.get_priority_instruments_to_trade()
+            self.df_priority_stocks = pd.DataFrame(self.priority_stocks_tpl, columns=['instrument_token', 'symbol'])
             # info = f'{total_time=} to download {interval} data'
             #log_batch_main.append((self.today, 'download_current_data', 'time_taken', info, 2, datetime.now()))
             #await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
