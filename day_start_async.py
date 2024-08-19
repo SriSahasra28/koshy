@@ -845,8 +845,8 @@ async def main():
     # return
     df = await db.get_pre_market_steps()
     print('now hour: ', datetime.now().hour)
-    if datetime.now().hour > 16:
-        print('get_pre_market_steps_ignore_date after 5 PM')
+    if datetime.now().hour >= 16:
+        print('get_pre_market_steps_ignore_date after 4 PM')
         df = await db.get_pre_market_steps_ignore_date()
     else:
         print('get_pre_market_steps before 5 PM')
