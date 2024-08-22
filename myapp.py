@@ -57,8 +57,7 @@ def insert_one_min_ohlc_proc_batch(batch_data):
     try:
         con = sqlConnector.connect(**DB_CONFIG)
         cursor = con.cursor()
-        procedure_call = "CALL Insert_one_min_ohlc(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
-
+        procedure_call = "CALL Insert_one_min_ohlc(%s, %s, %s, %s, %s, %s)"
         for data in batch_data:
             cursor.execute(procedure_call, data)
         
@@ -77,7 +76,7 @@ def Insert_three_min_ohlc_proc_batch(batch_data):
     try:
         con = sqlConnector.connect(**DB_CONFIG)
         cursor = con.cursor()
-        procedure_call = "CALL Insert_three_min_ohlc(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        procedure_call = "CALL Insert_three_min_ohlc(%s, %s, %s, %s, %s, %s)"
         for data in batch_data:
             cursor.execute(procedure_call, data)
         con.commit()
@@ -93,7 +92,7 @@ def Insert_two_min_ohlc_proc_batch(batch_data):
     try:
         con = sqlConnector.connect(**DB_CONFIG)
         cursor = con.cursor()
-        procedure_call = "CALL Insert_two_min_ohlc(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        procedure_call = "CALL Insert_two_min_ohlc(%s, %s, %s, %s, %s, %s)"
         for data in batch_data:
             cursor.execute(procedure_call, data)
         con.commit()
@@ -109,7 +108,7 @@ def Insert_five_min_ohlc_proc_batch(batch_data):
     try:
         con = sqlConnector.connect(**DB_CONFIG)
         cursor = con.cursor()
-        procedure_call = "CALL Insert_five_min_ohlc(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        procedure_call = "CALL Insert_five_min_ohlc(%s, %s, %s, %s, %s, %s)"
         for data in batch_data:
             cursor.execute(procedure_call, data)
         con.commit()
@@ -125,7 +124,7 @@ def Insert_ten_min_ohlc_proc_batch(batch_data):
     try:
         con = sqlConnector.connect(**DB_CONFIG)
         cursor = con.cursor()
-        procedure_call = "CALL Insert_ten_min_ohlc(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        procedure_call = "CALL Insert_ten_min_ohlc(%s, %s, %s, %s, %s, %s)"
         for data in batch_data:
             cursor.execute(procedure_call, data)
         con.commit()
@@ -141,7 +140,7 @@ def Insert_fifteen_min_ohlc_proc_batch(batch_data):
     try:
         con = sqlConnector.connect(**DB_CONFIG)
         cursor = con.cursor()
-        procedure_call = "CALL Insert_fifteen_min_ohlc(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        procedure_call = "CALL Insert_fifteen_min_ohlc(%s, %s, %s, %s, %s, %s)"
         for data in batch_data:
             cursor.execute(procedure_call, data)
         con.commit()
@@ -157,7 +156,7 @@ def Insert_thirty_min_ohlc_proc_batch(batch_data):
     try:
         con = sqlConnector.connect(**DB_CONFIG)
         cursor = con.cursor()
-        procedure_call = "CALL Insert_thirty_min_ohlc(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        procedure_call = "CALL Insert_thirty_min_ohlc(%s, %s, %s, %s, %s, %s)"
         for data in batch_data:
             cursor.execute(procedure_call, data)
         con.commit()
@@ -173,7 +172,7 @@ def Insert_hour_ohlc_proc_batch(batch_data):
     try:
         con = sqlConnector.connect(**DB_CONFIG)
         cursor = con.cursor()
-        procedure_call = "CALL Insert_hour_ohlc(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        procedure_call = "CALL Insert_hour_ohlc(%s, %s, %s, %s, %s, %s)"
         for data in batch_data:
             cursor.execute(procedure_call, data)
         con.commit()

@@ -576,7 +576,10 @@ class Start(object):
                             log_batch.append((self.today, 'download_ohlc_v2', 'no crossover', info, 2, datetime.now()))
                             #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no crossover', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
                     else:
-                        for i in range(-crossover_index, 0):
+                        candles_to_check = 3
+                        if crossover_index < candles_to_check:
+                            candles_to_check = crossover_index
+                        for i in range(-candles_to_check, 0):
                             psar_signal = signals[i] # psar_signal = signals[-1]
                             if self.loglevel >= 2:
                                 info = f"{crossover_index=} {psar_signal=} {signaldirection=}"

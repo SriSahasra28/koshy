@@ -478,7 +478,7 @@ class dbconnection:
     async def get_old_data_by_symbol(self, table_name, symbol):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute(f"Select datetime, open, high, low, close FROM {table_name} where symbol = '{symbol}' ORDER BY datetime DESC LIMIT 500;")
+                await cur.execute(f"Select datetime, open, high, low, close FROM {table_name} where symbol = '{symbol}' ORDER BY datetime DESC LIMIT 1000;")
                 data = await cur.fetchall()
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)

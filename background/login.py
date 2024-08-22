@@ -36,7 +36,7 @@ class login():
         #print(f"In Login {token =} {last_login_date=}")
         self.kite = KiteConnect(api_key=self.api_key)
         if self.force_login is False and last_login_date == dtm.now().date():
-            print('Access Key Available. Skipping fresh login')            
+            #print('Access Key Available. Skipping fresh login')            
             try:
                 self.kite.set_access_token(token)
                 kws = KiteTicker(self.api_key, token, debug=True, reconnect=True, reconnect_max_tries=150)
