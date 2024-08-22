@@ -682,12 +682,12 @@ class Start(object):
                 high_val = data_combined[i,1]
                 low_val = data_combined[i,2]
                 close_val = data_combined[i,3]
-                ha_open_val = ha_open[i]
-                ha_high_val = ha_high[i]
-                ha_low_val = ha_low[i]
-                ha_close_val = ha_close[i]
-                batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, ha_open_val, ha_high_val, ha_low_val, ha_close_val))
-                #print('batch_data', len(batch_data))
+                # ha_open_val = ha_open[i]
+                # ha_high_val = ha_high[i]
+                # ha_low_val = ha_low[i]
+                # ha_close_val = ha_close[i]
+                #batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, ha_open_val, ha_high_val, ha_low_val, ha_close_val))
+                batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val))
                 if len(batch_data) >= BATCH_SIZE:
                     if table_name == 'one_min_ohlc':
                         insert_one_min_ohlc_proc_batch.delay(batch_data)
@@ -869,11 +869,18 @@ class Start(object):
             df.reset_index(inplace=True, names="datetime")
 
             ha_open, ha_high, ha_low, ha_close = heikin_ashi_numpy(df['open'].to_list(), df['high'].to_list(), df['low'].to_list(), df['close'].to_list())
+            
+            data_ha = np.zeros((len(df), 4), dtype='float64')
+            data_ha[:,0] = np.array(ha_open)
+            data_ha[:,1] = np.array(ha_high)
+            data_ha[:,2] = np.array(ha_low)
+            data_ha[:,3] = np.array(ha_close)
 
-            df['ha_open'] = ha_open
-            df['ha_high'] = ha_high
-            df['ha_low'] = ha_low
-            df['ha_close'] = ha_close
+            self.ha_collection[interval][exchange_code] = data_ha
+            # df['ha_open'] = ha_open
+            # df['ha_high'] = ha_high
+            # df['ha_low'] = ha_low
+            # df['ha_close'] = ha_close
 
             df = df[df['datetime'] > cutoff_datetime]
             BATCH_SIZE = 1000
@@ -886,12 +893,12 @@ class Start(object):
                 high_val = row['high']
                 low_val = row['low']
                 close_val = row['close']
-                ha_open = row['ha_open']
-                ha_high = row['ha_high']
-                ha_low = row['ha_low']
-                ha_close = row['ha_close']
-                batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, ha_open, ha_high, ha_low, ha_close))
-                
+                # ha_open = row['ha_open']
+                # ha_high = row['ha_high']
+                # ha_low = row['ha_low']
+                # ha_close = row['ha_close']
+                #batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, ha_open, ha_high, ha_low, ha_close))
+                batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val))
                 if len(batch_data) >= BATCH_SIZE:
                     Insert_two_min_ohlc_proc_batch.delay(batch_data)
                     # task = asyncio.create_task(self.db.Insert_two_min_ohlc_proc_batch(batch_data))
