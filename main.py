@@ -1352,7 +1352,7 @@ async def main():
         CurrentDateTime = datetime.now()
         current_time = CurrentDateTime.time()
         print(current_time)
-        if current_time > start.initiate_time and current_time < start.exit_time and current_time.second == 2:
+        if current_time > start.initiate_time and current_time < start.exit_time and current_time.second < 50:
             await start.start_pool()
             await start.download_current_data()
             await asyncio.sleep(1)
