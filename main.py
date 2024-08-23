@@ -1371,16 +1371,17 @@ async def main():
         batch_insert_trade_logs.delay(log_batch)
         log_batch= []
 
-    last_run_time = None  
+    last_run_minute = None  
     while True:
         CurrentDateTime = datetime.now()
         current_time = CurrentDateTime.time()
+        current_minute = CurrentDateTime.minute
         print(current_time)
-        # Check if within the time window and the current second is less than 50
+        
         if current_time > start.initiate_time and current_time < start.exit_time and current_time.second < 50:
-            if last_run_time is None or (CurrentDateTime - last_run_time).total_seconds() >= 60:
-                # Update the last run time
-                last_run_time = CurrentDateTime
+            # Ensure the code runs only if the minute has changed
+            if last_run_minute is None or current_minute != last_run_minute:
+                last_run_minute = current_minute
                 await start.start_pool()
                 await start.download_current_data()
                 await start.close_pool()
