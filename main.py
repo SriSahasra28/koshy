@@ -175,7 +175,7 @@ class Start(object):
         #self.sdate_iso = self.sdate.isoformat()[:10] + 'T09:15:00.000Z'
         self.log = True
         self.alertLog = False
-        self.loglevel = 0 # Low 0, Medium 1, High 2
+        self.loglevel = 2 # Low 0, Medium 1, High 2
         self.trade =True
         self.run_job = True
         self.initiate_time = tm(9,15,1)
@@ -1017,7 +1017,7 @@ class Start(object):
             info = f'{total_time=} to download {interval} data'
             log_batch_main.append((self.today, 'download_current_data', 'time_taken', info, 2, datetime.now()))
             #await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
-        if current_datetime.minute >= 15 and current_datetime.minute < 20:
+        if current_datetime.minute >= 15 and current_datetime.minute < 18:
             interval = '60minute'
             start_time = time.time()
             await self.download_ohlc_v2(self.df_priority_stocks, interval)
