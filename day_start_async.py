@@ -842,8 +842,8 @@ async def main():
     # ---------------- TEMPORARY ----------------------
     priority_stocks_tpl = await db.get_priority_instruments_to_trade()
     df_all_stocks = pd.DataFrame(priority_stocks_tpl, columns=['instrument_token', 'symbol'])
-    await download_ohlc_2min(df_all_stocks)
-    await download_ohlc_v2(df_all_stocks, '3minute')
+    #await download_ohlc_2min(df_all_stocks)
+    await download_ohlc_v2(df_all_stocks, '5minute')
 
     return
     df = await db.get_pre_market_steps()
