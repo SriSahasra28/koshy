@@ -944,8 +944,8 @@ class Start(object):
         total_time = end_time - start_time
         digit_name =  self.interval_to_digit.get(interval, None)
         await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, digit_name, total_time)
-        # info = f'{total_time=} to download {interval} data'
-        # await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
+        info = f'{total_time=} to download {interval} data'
+        await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
         
         if current_datetime.minute % 2 == 0:
             interval = '2minute'
@@ -955,8 +955,8 @@ class Start(object):
             end_time = time.time()  
             total_time = end_time - start_time            
             info = f'{total_time=} to download {interval} data'
-            #log_batch_main.append((self.today, 'download_current_data', 'time_taken', info, 2, datetime.now()))
-            await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
+            log_batch_main.append((self.today, 'download_current_data', 'time_taken', info, 2, datetime.now()))
+            #await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
 
         if current_datetime.minute % 3 == 0:
             interval = '3minute'
@@ -966,8 +966,8 @@ class Start(object):
             total_time = end_time - start_time   
             digit_name =  self.interval_to_digit.get(interval, None)         
             await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, digit_name, total_time)
-            #info = f'{total_time=} to download {interval} data'
-            #log_batch_main.append((self.today, 'download_current_data', 'time_taken', info, 2, datetime.now()))
+            info = f'{total_time=} to download {interval} data'
+            log_batch_main.append((self.today, 'download_current_data', 'time_taken', info, 2, datetime.now()))
             #await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
             
             #await self.run_alerts_check(interval)
@@ -979,8 +979,8 @@ class Start(object):
             total_time = end_time - start_time
             digit_name =  self.interval_to_digit.get(interval, None)
             await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, digit_name, total_time)            
-            #info = f'{total_time=} to download {interval} data'
-            #log_batch_main.append((self.today, 'download_current_data', 'time_taken', info, 2, datetime.now()))
+            info = f'{total_time=} to download {interval} data'
+            log_batch_main.append((self.today, 'download_current_data', 'time_taken', info, 2, datetime.now()))
             #await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
         if current_datetime.minute % 10 == 0:
             interval = '10minute'
@@ -992,8 +992,8 @@ class Start(object):
             await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, digit_name, total_time)               
             self.priority_stocks_tpl = await self.db.get_priority_instruments_to_trade()
             self.df_priority_stocks = pd.DataFrame(self.priority_stocks_tpl, columns=['instrument_token', 'symbol'])
-            # info = f'{total_time=} to download {interval} data'
-            #log_batch_main.append((self.today, 'download_current_data', 'time_taken', info, 2, datetime.now()))
+            info = f'{total_time=} to download {interval} data'
+            log_batch_main.append((self.today, 'download_current_data', 'time_taken', info, 2, datetime.now()))
             #await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
         if current_datetime.minute % 15 == 0:
             interval = '15minute'
@@ -1003,6 +1003,8 @@ class Start(object):
             total_time = end_time - start_time
             digit_name =  self.interval_to_digit.get(interval, None)
             await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, digit_name, total_time)               
+            info = f'{total_time=} to download {interval} data'
+            log_batch_main.append((self.today, 'download_current_data', 'time_taken', info, 2, datetime.now()))
             #await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
         if current_datetime.minute % 30 == 0:
             interval = '30minute'
@@ -1012,8 +1014,8 @@ class Start(object):
             total_time = end_time - start_time
             digit_name =  self.interval_to_digit.get(interval, None)
             await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, digit_name, total_time)
-            #info = f'{total_time=} to download {interval} data'
-            #log_batch_main.append((self.today, 'download_current_data', 'time_taken', info, 2, datetime.now()))
+            info = f'{total_time=} to download {interval} data'
+            log_batch_main.append((self.today, 'download_current_data', 'time_taken', info, 2, datetime.now()))
             #await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
         if current_datetime.minute >= 15 and current_datetime.minute < 20:
             interval = '60minute'
@@ -1023,8 +1025,8 @@ class Start(object):
             total_time = end_time - start_time 
             digit_name =  self.interval_to_digit.get(interval, None)
             await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, digit_name, total_time)           
-            #info = f'{total_time=} to download {interval} data'
-            #log_batch_main.append((self.today, 'download_current_data', 'time_taken', info, 2, datetime.now()))
+            info = f'{total_time=} to download {interval} data'
+            log_batch_main.append((self.today, 'download_current_data', 'time_taken', info, 2, datetime.now()))
             #await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
         if log_batch_main:
             batch_insert_trade_logs.delay(log_batch_main)
@@ -1298,33 +1300,49 @@ class Start(object):
 async def main():
     start = Start()
     await start.start_pool()
-    start_time = time.time()
     start.priority_stocks_tpl = await start.db.get_priority_instruments_to_trade()
     start.df_priority_stocks = pd.DataFrame(start.priority_stocks_tpl, columns=['instrument_token', 'symbol'])
     all_symbols = start.df_priority_stocks['symbol'].to_list()
     all_symbols_set = set(all_symbols)
     log_batch = []
     BATCH_SIZE = 500
-    for interval, table_name in start.interval_to_table.items():
-        prvdata = await start.db.get_old_data_limit(table_name)
-        unique_symbols = prvdata['symbol'].unique()
-        unique_symbols_set = set(unique_symbols)
-        missing_symbols = all_symbols_set - unique_symbols_set
-        missing_symbols_list = list(missing_symbols)
+    start_time = time.time()
 
-        for s_value, group_df in prvdata.groupby('symbol'):
-            if s_value in all_symbols:
-                l = len(group_df)
-                if l < 400:
-                    missing_symbols_list.append(s_value)
-                else:
-                    group_df = group_df.tail(500)
-                    ohlc_np = group_df[['open', 'high', 'low', 'close']].values.astype(float)
-                    start.data_collections[interval][s_value] = ohlc_np
-                    group_df['datetime'] = pd.to_datetime(group_df['datetime'])
-                    datetime_list = group_df['datetime'].tolist()
-                    start.dates_collections[interval][s_value] = datetime_list
-        for symbol in missing_symbols_list:
+    # create cache Current solution 194.7 seconds vs 130 seconds
+    # for interval, table_name in start.interval_to_table.items():
+    #     prvdata = await start.db.get_old_data_limit(table_name)
+    #     unique_symbols = prvdata['symbol'].unique()
+    #     unique_symbols_set = set(unique_symbols)
+    #     missing_symbols = all_symbols_set - unique_symbols_set
+    #     missing_symbols_list = list(missing_symbols)
+    #     for s_value, group_df in prvdata.groupby('symbol'):
+    #         if s_value in all_symbols:
+    #             l = len(group_df)
+    #             if l < 400:
+    #                 missing_symbols_list.append(s_value)
+    #             else:
+    #                 group_df = group_df.tail(500)
+    #                 ohlc_np = group_df[['open', 'high', 'low', 'close']].values.astype(float)
+    #                 start.data_collections[interval][s_value] = ohlc_np
+    #                 group_df['datetime'] = pd.to_datetime(group_df['datetime'])
+    #                 datetime_list = group_df['datetime'].tolist()
+    #                 start.dates_collections[interval][s_value] = datetime_list
+    #     for symbol in missing_symbols_list:
+    #         group_df = await start.db.get_old_data_by_symbol(table_name, symbol)
+    #         if len(group_df) > 0:
+    #             ohlc_np = group_df[['open', 'high', 'low', 'close']].values.astype(float)
+    #             start.data_collections[interval][symbol] = ohlc_np
+    #             group_df['datetime'] = pd.to_datetime(group_df['datetime'])
+    #             datetime_list = group_df['datetime'].tolist()
+    #             start.dates_collections[interval][symbol] = datetime_list
+    #         else:
+    #             info = f'Data not found for {symbol} {table_name}'
+    #             #await start.db.insert_trade_log(date_log=start.today, module='main', activity='cache creation', important_data=info, priority=4, strategy_trade_id = '', timestamp=datetime.now())
+    #             log_batch.append((start.today, 'main', 'cache creation', info, 2, datetime.now())) 
+
+#------------------ Temp
+    for interval, table_name in start.interval_to_table.items():
+        for symbol in all_symbols:
             group_df = await start.db.get_old_data_by_symbol(table_name, symbol)
             if len(group_df) > 0:
                 ohlc_np = group_df[['open', 'high', 'low', 'close']].values.astype(float)
@@ -1334,29 +1352,39 @@ async def main():
                 start.dates_collections[interval][symbol] = datetime_list
             else:
                 info = f'Data not found for {symbol} {table_name}'
-                #await start.db.insert_trade_log(date_log=start.today, module='main', activity='cache creation', important_data=info, priority=4, strategy_trade_id = '', timestamp=datetime.now())
                 log_batch.append((start.today, 'main', 'cache creation', info, 2, datetime.now())) 
+
+
+#--------------
+
+
+    end_time = time.time()  
+    total_time = end_time - start_time
+    info = f"{total_time=}"
 
     start.df_scan_items = await start.db.get_scan_items()
     start.df_custom_indicators = await start.db.get_custom_indicators()
     start.df_conditions = await start.db.get_conditions()
     start.df_HLFP = await start.db.get_hlfp()
-    end_time = time.time()  
-    total_time = end_time - start_time
-    info = f"{total_time=}"
+
     if log_batch:
         batch_insert_trade_logs.delay(log_batch)
         log_batch= []
 
+    last_run_time = None  
     while True:
         CurrentDateTime = datetime.now()
         current_time = CurrentDateTime.time()
         print(current_time)
+        # Check if within the time window and the current second is less than 50
         if current_time > start.initiate_time and current_time < start.exit_time and current_time.second < 50:
-            await start.start_pool()
-            await start.download_current_data()
+            if last_run_time is None or (CurrentDateTime - last_run_time).total_seconds() >= 60:
+                # Update the last run time
+                last_run_time = CurrentDateTime
+                await start.start_pool()
+                await start.download_current_data()
+                await start.close_pool()
             await asyncio.sleep(1)
-            await start.close_pool()
         elif current_time <= start.initiate_time:
             print('Waiting for the market to open')
             await asyncio.sleep(1)
