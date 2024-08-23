@@ -793,7 +793,7 @@ async def main():
     # check monthly turnover
     rollover_status = 0
     await db.run_query('truncate table pre_process_logs;')
-    
+
     # if today.day > 20:
     #     rollover_status = await rollover()
     # df_all_stocks = await db.get_monitor_symbols_to_trade()
@@ -840,7 +840,8 @@ async def main():
         await db.pre_process_logs(datetime.now().strftime("%Y-%m-%d"), 'test zerodha', 'zerodha_last_trans', Error, 4)
    
     # ---------------- TEMPORARY ----------------------
-    df_all_stocks = await db.get_priority_instruments_to_trade()
+    priority_stocks_tpl = await db.get_priority_instruments_to_trade()
+    df_all_stocks = pd.DataFrame(priority_stocks_tpl, columns=['instrument_token', 'symbol'])
     await download_ohlc_v2(df_all_stocks, 'minute')
 
     return
