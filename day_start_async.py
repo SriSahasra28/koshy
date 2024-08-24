@@ -535,7 +535,7 @@ async def download_ohlc_v2(df_all_stocks, interval):
         #data_np_new[:,4] = np.array(volumes)
         if len(data_np_new) == 0:
             info = f"No Data to process skipping {exchange_code} {interval}"
-            await db.pre_process_logs(today_str, 'gethistorical_cash', info, info, 4)
+            await db.pre_process_logs(today_str, 'gethistorical_cash', 'no data', info, 4)
             continue
         data_combined = data_np_new
         print('len data_combined:', len(data_combined), 'len dates_combined:', len(dates_combined))
