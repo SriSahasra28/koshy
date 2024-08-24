@@ -440,9 +440,11 @@ async def download_ohlc_v2(df_all_stocks, interval):
             last_datetime = dates_list_old[-1]
             last_datetime = last_datetime.replace(second=0, microsecond=0)
             cutoff_datetime = last_datetime
-            print('cache datetime available', cutoff_datetime)  
+            info = f"cache datetime available {exchange_code} {interval}"
+            if log == True:
+                await db.pre_process_logs(today_str, 'cache', 'check date cache', info, 1) 
         else:
-            print('no cache')
+            info = f"no cache {exchange_code} {interval}"
             last_datetime = datetime.today() - timedelta(days=90)
             last_datetime = last_datetime.replace(hour=9, minute=15, second=0, microsecond=0)
             cutoff_datetime = last_datetime
@@ -457,49 +459,52 @@ async def download_ohlc_v2(df_all_stocks, interval):
         try:
             print(f"{end_date_now=}, {end_date_today=}")
             if cutoff_datetime >= end_date_now:
-                print(f"skipping cutoff_datetime:{cutoff_datetime} >= end_date_now:{end_date_now}", instrument_token)
+                info = f"skipping cutoff_datetime:{cutoff_datetime} >= end_date_now:{end_date_now} {exchange_code} {interval}"
+                await db.pre_process_logs(today_str, 'cache', 'check date cache', info, 1) 
                 continue
             elif interval == '60minute':
                 exptime = cutoff_datetime + timedelta(hours=1)
                 print(f"{exptime=}")
                 if exptime > end_date_today:
-                    print(f'skipping {exptime=}', instrument_token)
+                    info = "skipping {exptime=} {exchange_code} {interval}"
+                    await db.pre_process_logs(today_str, 'cache', 'check date cache', info, 1) 
                     continue
             print(f"{exchange_code} {last_datetime=}, {end_date_today=}")
             
             if zerodha_last_trans != None and last_datetime >= zerodha_last_trans:
-                print('skipping last_datetime >= zerodha_last_trans ', exchange_code)
+                info = "skipping last_datetime >= zerodha_last_trans {exchange_code} {interval}"
+                await db.pre_process_logs(today_str, 'cache', 'check date cache', info, 1) 
                 continue
 
             status, data, Error = await get_data_zerodha_recursive_list(interval, last_datetime, end_date_today, instrument_token, exchange_code)
             #print(f"{status=}")
         except Exception as e:
             if log == True:
-                print('Error in downloading', exchange_code, e)
-                await db.pre_process_logs(today_str, 'gethistorical_cash', 'Error downloading', exchange_code, 3)
+                info = "Error in downloading {exchange_code} {interval} {e}"
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'Error downloading', info, 3)
             result = -1
 
         if status == 1 and len(data) > 0:
             result = 1
         else:
             if log == True:
-                await db.pre_process_logs(today_str, 'gethistorical_cash', 'download using history api', 'len data = 0', 1)
+                info = f"len data = 0 {exchange_code} {interval}"
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'download using history api', info, 1)
             print('no data skipping processing')
-            await asyncio.sleep(0.25)
             continue
         if result == -1:
             if log == True:
-                await db.pre_process_logs(today_str, 'gethistorical_cash', 'download using history api', 'Error', 4)
+                info = f"Error downloading {exchange_code} {interval}"
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'download using history api', info, 4)
             print('Error getting data skipping processing')
-            await asyncio.sleep(0.25)
             continue
         if status == 0:
             if Error == 'invalid token':
                 await db.run_query(f"update monitor_symbols set active = 0 where symbol = '{exchange_code}'")
             if log == True:
-                await db.pre_process_logs(today_str, 'gethistorical_cash', 'invalid token', exchange_code, 4)
+                info = f"invalid token {exchange_code} {interval}"
+                await db.pre_process_logs(today_str, 'gethistorical_cash', 'invalid token', info, 4)
             print('invalid token skipping processing')
-            await asyncio.sleep(0.25)
             continue        
 
         dates_new = []
@@ -529,10 +534,10 @@ async def download_ohlc_v2(df_all_stocks, interval):
         data_np_new[:,3] = np.array(closes)
         #data_np_new[:,4] = np.array(volumes)
         if len(data_np_new) == 0:
-            print('No Data to process skipping')
+            info = f"No Data to process skipping {exchange_code} {interval}"
+            await db.pre_process_logs(today_str, 'gethistorical_cash', info, info, 4)
             continue
         data_combined = data_np_new
-
         print('len data_combined:', len(data_combined), 'len dates_combined:', len(dates_combined))
         
         # calculate indicators
@@ -649,8 +654,11 @@ async def download_ohlc_v2(df_all_stocks, interval):
         #         tasks.append(task)
             
         else:
-            print('no batch_data', exchange_code)
-        print('done ', table_name,' ', exchange_code)
+            info = f"no batch_data {exchange_code} {interval}"
+            await db.pre_process_logs(today_str, 'insert in db', 'batch data', info, 1)
+            
+        info = f"processed rows {total_count} {exchange_code} {interval}"
+        await db.pre_process_logs(today_str, 'data insertted', 'finishing', info, 1)
        #await asyncio.gather(*tasks)
     return 1, error, count_iter
 
