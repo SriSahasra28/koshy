@@ -794,43 +794,43 @@ async def main():
     rollover_status = 0
     await db.run_query('truncate table pre_process_logs;')
 
-    # if today.day > 20:
-    #     rollover_status = await rollover()
-    # df_all_stocks = await db.get_monitor_symbols_to_trade()
-    # all_symbols = df_all_stocks['symbol'].to_list()
-    # all_symbols_set = set(all_symbols)
-    # global dates_collections, zerodha_last_trans
+    if today.day > 20:
+        rollover_status = await rollover()
+    df_all_stocks = await db.get_monitor_symbols_to_trade()
+    all_symbols = df_all_stocks['symbol'].to_list()
+    all_symbols_set = set(all_symbols)
+    global dates_collections, zerodha_last_trans
 
-    # for interval, table_name in interval_to_table.items():
-    #     prvdata = await db.get_old_data_limit(table_name)
-    #     unique_symbols = prvdata['symbol'].unique()
-    #     unique_symbols_set = set(unique_symbols)
-    #     missing_symbols = all_symbols_set - unique_symbols_set
-    #     missing_symbols_list = list(missing_symbols)
+    for interval, table_name in interval_to_table.items():
+        prvdata = await db.get_old_data_limit(table_name)
+        unique_symbols = prvdata['symbol'].unique()
+        unique_symbols_set = set(unique_symbols)
+        missing_symbols = all_symbols_set - unique_symbols_set
+        missing_symbols_list = list(missing_symbols)
 
-    #     for s_value, group_df in prvdata.groupby('symbol'):
-    #         if s_value in all_symbols:
-    #             l = len(group_df)
-    #             if l < 400:
-    #                 missing_symbols_list.append(s_value)
-    #             else:
-    #                 group_df = group_df.tail(500)
-    #                 ohlc_np = group_df[['open', 'high', 'low', 'close']].values.astype(float)
-    #                 data_collections[interval][s_value] = ohlc_np
-    #                 group_df['datetime'] = pd.to_datetime(group_df['datetime'])
-    #                 datetime_list = group_df['datetime'].tolist()
-    #                 dates_collections[interval][s_value] = datetime_list
-    #     for symbol in missing_symbols_list:
-    #         group_df = await db.get_old_data_by_symbol(table_name, symbol)
-    #         if len(group_df) > 0:
-    #             ohlc_np = group_df[['open', 'high', 'low', 'close']].values.astype(float)
-    #             data_collections[interval][symbol] = ohlc_np
-    #             group_df['datetime'] = pd.to_datetime(group_df['datetime'])
-    #             datetime_list = group_df['datetime'].tolist()
-    #             dates_collections[interval][symbol] = datetime_list
-    #         else:
-    #             info = f'Data not found for {symbol} {table_name}'
-    #             await db.insert_trade_log(date_log= today, module='main', activity='cache creation', important_data=info, priority=4, strategy_trade_id = '', timestamp=datetime.now())
+        for s_value, group_df in prvdata.groupby('symbol'):
+            if s_value in all_symbols:
+                l = len(group_df)
+                if l < 400:
+                    missing_symbols_list.append(s_value)
+                else:
+                    group_df = group_df.tail(500)
+                    ohlc_np = group_df[['open', 'high', 'low', 'close']].values.astype(float)
+                    data_collections[interval][s_value] = ohlc_np
+                    group_df['datetime'] = pd.to_datetime(group_df['datetime'])
+                    datetime_list = group_df['datetime'].tolist()
+                    dates_collections[interval][s_value] = datetime_list
+        for symbol in missing_symbols_list:
+            group_df = await db.get_old_data_by_symbol(table_name, symbol)
+            if len(group_df) > 0:
+                ohlc_np = group_df[['open', 'high', 'low', 'close']].values.astype(float)
+                data_collections[interval][symbol] = ohlc_np
+                group_df['datetime'] = pd.to_datetime(group_df['datetime'])
+                datetime_list = group_df['datetime'].tolist()
+                dates_collections[interval][symbol] = datetime_list
+            else:
+                info = f'Data not found for {symbol} {table_name}'
+                await db.insert_trade_log(date_log= today, module='main', activity='cache creation', important_data=info, priority=4, strategy_trade_id = '', timestamp=datetime.now())
                 
     status, data, Error = await get_data_zerodha_recursive_list('60minute',  datetime.now() - timedelta(days=5), datetime.now(), 256265, 'NIFTY 50')
     if status == 1:
@@ -839,14 +839,7 @@ async def main():
         print('Error getting NIFTY data from Zerodha')
         await db.pre_process_logs(datetime.now().strftime("%Y-%m-%d"), 'test zerodha', 'zerodha_last_trans', Error, 4)
    
-    # ---------------- TEMPORARY ----------------------
-    priority_stocks_tpl = await db.get_priority_instruments_to_trade()
-    df_all_stocks = pd.DataFrame(priority_stocks_tpl, columns=['instrument_token', 'symbol'])
-    #await download_ohlc_2min(df_all_stocks)
-    await download_ohlc_v2(df_all_stocks, '15minute')
-    await download_ohlc_v2(df_all_stocks, '30minute')
-    await download_ohlc_v2(df_all_stocks, '60minute')
-    return
+    #return
     df = await db.get_pre_market_steps()
     print('now hour: ', datetime.now().hour)
     if datetime.now().hour >= 16:
