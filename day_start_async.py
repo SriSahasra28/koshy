@@ -846,8 +846,9 @@ async def main():
     else:
         print('Error getting NIFTY data from Zerodha')
         await db.pre_process_logs(datetime.now().strftime("%Y-%m-%d"), 'test zerodha', 'zerodha_last_trans', Error, 4)
-   
-    #return
+    
+    await download_ohlc_v2(df_all_stocks, 'minute')
+    return
     df = await db.get_pre_market_steps()
     print('now hour: ', datetime.now().hour)
     if datetime.now().hour >= 16:
