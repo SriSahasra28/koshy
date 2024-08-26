@@ -175,7 +175,7 @@ class Start(object):
         #self.sdate_iso = self.sdate.isoformat()[:10] + 'T09:15:00.000Z'
         self.log = True
         self.alertLog = False
-        self.loglevel = 2 # Low 0, Medium 1, High 2
+        self.loglevel = 1 # Low 0, Medium 1, High 2
         self.trade =True
         self.run_job = True
         self.initiate_time = tm(9, 15, 59)
