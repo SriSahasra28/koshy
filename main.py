@@ -999,7 +999,8 @@ class Start(object):
             await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='start', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
             info = f"{signaldirection=} {lrcangletype=} {lrcanglestart=} {lrcangleend=} {scanID=} {lrc_period=} {lrc_stdev=}"
             await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='start', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
-        for instrument_token, exchange_code in priority_stocks_tpl:
+
+        for instrument_token, exchange_code, basket_id in priority_stocks_tpl:
             if exchange_code in self.data_collections[interval]:
                 data = self.data_collections[interval][exchange_code]
                 date_vals = None
