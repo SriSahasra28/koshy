@@ -861,7 +861,7 @@ class dbconnection:
     async def get_priority_instruments_to_trade(self):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                query = f"SELECT m.instrument_token, m.symbol FROM monitor_symbols m left join instruments i on m.instrument_token = i.instrument_token where m.active = 1 and i.expiry >= curdate() and m.stock_symbol in (SELECT distinct symbol FROM basket_stocks);"
+                query = f"SELECT distinct m.instrument_token, m.symbol, b.basket_id FROM monitor_symbols m left join instruments i on m.instrument_token = i.instrument_token inner join basket_stocks b on m.stock_symbol = b.symbol where m.active = 1 and i.expiry >= curdate() and m.stock_symbol in (SELECT distinct symbol FROM basket_stocks);"
                 await cur.execute(query)
                 data = await cur.fetchall()
         return data

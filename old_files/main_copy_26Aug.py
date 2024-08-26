@@ -300,9 +300,6 @@ class Start(object):
         for index, row in df_all_stocks.iterrows():
             exchange_code = row['symbol']
             instrument_token = row['instrument_token'] # new added
-            basket_id = None
-            if 'basket_id' in row:
-                basket_id = row['basket_id'] 
             #current_time = datetime.now().strftime("%H:%M:%S")
             if self.loglevel >= 2:
                 print(exchange_code)
@@ -499,30 +496,24 @@ class Start(object):
             # ------------------- Insert Alert Code here --------------------------------
             if self.loglevel >= 2:
                 info = f'Alert code begin {exchange_code} {interval}'
-                log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'start alert code', info, 2, datetime.now()))
+                log_batch.append((self.today, 'download_ohlc_v2', 'start alert code', info, 2, datetime.now()))
                 #await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='start alert code', important_data=info, priority=1, strategy_trade_id = '', timestamp=end_date_now)
             digit_name =  self.interval_to_digit.get(interval, None)
             column_name = str(digit_name) + 'min'
-            # Change here
             df_items = self.df_scan_items[self.df_scan_items[column_name] == 1]
             alert_check = True
             if df_items.empty:
                 if self.loglevel >= 1:
                     info = f'df_items empty skip {exchange_code} {interval}'
-                    log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'no alert items', info, 2, datetime.now()))
+                    log_batch.append((self.today, 'download_ohlc_v2', 'no alert items', info, 2, datetime.now()))
                     #await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='no alert items', important_data=info, priority=5, strategy_trade_id = '', timestamp=end_date_now)
                 alert_check = False
                 alerts_skip += 1
-            if basket_id == None:
-                info = f'basket_id None skip {exchange_code} {interval}'
-                log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'basket_id None', info, 2, datetime.now()))
-                alert_check = False
-            df_items = df_items[df_items['basket_id'] == basket_id]
             conditions = df_items.conditionID.unique()
             if len(conditions) == 0:
                 if self.loglevel >= 1:
                     info = f'No condition {exchange_code} {interval}'
-                    log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'no conditions', info, 2, datetime.now()))
+                    log_batch.append((self.today, 'download_ohlc_v2', 'no conditions', info, 2, datetime.now()))
                     #await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='no conditions', important_data=info, priority=5, strategy_trade_id = '', timestamp=end_date_now)
                 alerts_skip += 1
                 alert_check = False
@@ -530,12 +521,12 @@ class Start(object):
                 alerts_process += 1
                 if self.loglevel >= 2:
                     info = f'Alert check true {exchange_code}{interval}'
-                    log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'alert check', info, 2, datetime.now()))
+                    log_batch.append((self.today, 'download_ohlc_v2', 'alert check', info, 2, datetime.now()))
                     #await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='alert check', important_data=info, priority=5, strategy_trade_id = '', timestamp=end_date_now)
                 for conditionID in conditions:
                     if self.loglevel >= 2:
                         info = f"{conditionID=} {exchange_code}{interval}"
-                        log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'process cond', info, 2, datetime.now()))
+                        log_batch.append((self.today, 'download_ohlc_v2', 'process cond', info, 2, datetime.now()))
                         #await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_v2', activity='process cond', important_data=info, priority=1, strategy_trade_id = '', timestamp=end_date_now)
                     condition_filtered = self.df_conditions[self.df_conditions['id'] == conditionID]
                     scanID = df_items.loc[(df_items[column_name] == 1) & (df_items['conditionID'] == conditionID), 'scanID'].iloc[0]     
@@ -582,7 +573,7 @@ class Start(object):
                     if crossover_index == -1 or crossover_index == psarCandles:
                         if self.loglevel >= 2:
                             info = f'{crossover_index=} {psarCandles=} {exchange_code}{interval}'
-                            log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'no crossover', info, 2, datetime.now()))
+                            log_batch.append((self.today, 'download_ohlc_v2', 'no crossover', info, 2, datetime.now()))
                             #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no crossover', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
                     else:
                         candles_to_check = 3
@@ -592,12 +583,12 @@ class Start(object):
                             psar_signal = signals[i] # psar_signal = signals[-1]
                             if self.loglevel >= 2:
                                 info = f"{crossover_index=} {psar_signal=} {signaldirection=}"
-                                log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'crossover', info, 2, datetime.now()))
+                                log_batch.append((self.today, 'download_ohlc_v2', 'crossover', info, 2, datetime.now()))
                                 #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='crossover', important_data=info, priority=1, strategy_trade_id = '', timestamp=datetime.now())
                             if psar_signal == signaldirection: # signaldirection = 1 PSAR Signal is Long
                                 if self.loglevel >= 1:
                                     info = f"psar_signal: {psar_signal} == signaldirection: {signaldirection}"
-                                    log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'signal', info, 2, datetime.now()))
+                                    log_batch.append((self.today, 'download_ohlc_v2', 'signal', info, 2, datetime.now()))
                                     #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='signal', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
                                 open_ha = ha_combined[i,0]
                                 high_ha = ha_combined[i,1]
@@ -617,7 +608,7 @@ class Start(object):
                                 #LRL_value = LRL[-1]
                                 if self.loglevel >= 2:
                                     info = f"{open_ha=} {high_ha=} {low_ha=} {close_ha=} {LRL_value=} {candle_color=} {hlfpid=}"
-                                    log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'imp data', info, 2, datetime.now()))
+                                    log_batch.append((self.today, 'download_ohlc_v2', 'imp data', info, 2, datetime.now()))
                                 #print(f"{hlfpid=}")
                                 alert_timestamp = dates_combined[i]
                                 if hlfpid == 1:
@@ -631,7 +622,7 @@ class Start(object):
                                         alerts_fail += 1
                                         if self.loglevel >= 1:
                                             info = f"NOT color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value}"
-                                            log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'no match', info, 2, datetime.now()))
+                                            log_batch.append((self.today, 'download_ohlc_v2', 'no match', info, 2, datetime.now()))
                                             #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no match', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
                                 elif hlfpid == 2:
                                     no_lower_wick = low_ha == open_ha
@@ -646,7 +637,7 @@ class Start(object):
                                         alerts_fail += 1
                                         if self.loglevel >= 1:
                                             info = f"Not color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {upper_wick=}"
-                                            log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'no match', info, 2, datetime.now()))
+                                            log_batch.append((self.today, 'download_ohlc_v2', 'no match', info, 2, datetime.now()))
                                             #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no match', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
                                 elif hlfpid == 3:
                                     no_upper_wick = high_ha == close_ha
@@ -661,13 +652,13 @@ class Start(object):
                                         alerts_fail += 1
                                         if self.loglevel >= 1:
                                             info = f"Not Wickless color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {no_upper_wick=}"
-                                            log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'no match', info, 2, datetime.now()))
+                                            log_batch.append((self.today, 'download_ohlc_v2', 'no match', info, 2, datetime.now()))
                                             #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no match', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
                             else:
                                 alerts_fail += 1
                                 if self.loglevel >= 1:
                                     info = f"NOT psarsignal: {psar_signal} == signaldirection: {signaldirection}"
-                                    log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'no signal', info, 2, datetime.now()))
+                                    log_batch.append((self.today, 'download_ohlc_v2', 'no signal', info, 2, datetime.now()))
                                     #await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no signal', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
 
             # Continue with downloading code
@@ -691,7 +682,11 @@ class Start(object):
                 high_val = data_combined[i,1]
                 low_val = data_combined[i,2]
                 close_val = data_combined[i,3]
-                
+                # ha_open_val = ha_open[i]
+                # ha_high_val = ha_high[i]
+                # ha_low_val = ha_low[i]
+                # ha_close_val = ha_close[i]
+                #batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, ha_open_val, ha_high_val, ha_low_val, ha_close_val))
                 batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val))
                 if len(batch_data) >= BATCH_SIZE:
                     if table_name == 'one_min_ohlc':
@@ -724,6 +719,52 @@ class Start(object):
                     Insert_thirty_min_ohlc_proc_batch.delay(batch_data)
                 elif table_name == 'one_hour_ohlc':
                     Insert_hour_ohlc_proc_batch.delay(batch_data) 
+                # if len(batch_data) >= BATCH_SIZE:
+                #     if table_name == 'one_min_ohlc':
+                #         task = asyncio.create_task(self.db.Insert_one_min_ohlc_proc_batch(batch_data))
+                #         tasks.append(task)
+                #     elif table_name == 'three_min_ohlc':
+                #         task = asyncio.create_task(self.db.Insert_three_min_ohlc_proc_batch(batch_data))
+                #         tasks.append(task)
+                #     elif table_name == 'five_min_ohlc':
+                #         task = asyncio.create_task(self.db.Insert_five_min_ohlc_proc_batch(batch_data))
+                #         tasks.append(task)
+                #     elif table_name == 'ten_min_ohlc':
+                #         task = asyncio.create_task(self.db.Insert_ten_min_ohlc_proc_batch(batch_data))
+                #         tasks.append(task)
+                #     elif table_name == 'fifteen_min_ohlc':
+                #         task = asyncio.create_task(self.db.Insert_fifteen_min_ohlc_proc_batch(batch_data))
+                #         tasks.append(task)
+                #     elif table_name == 'thirty_min_ohlc':
+                #         task = asyncio.create_task(self.db.Insert_thirty_min_ohlc_proc_batch(batch_data))
+                #         tasks.append(task)
+                #     elif table_name == 'one_hour_ohlc':
+                #         task = asyncio.create_task(self.db.Insert_hour_ohlc_proc_batch(batch_data))
+                #         tasks.append(task)
+                #     batch_data = []
+
+            # if batch_data:
+            #     if table_name == 'one_min_ohlc':
+            #         task = asyncio.create_task(self.db.Insert_one_min_ohlc_proc_batch(batch_data))
+            #         tasks.append(task)
+            #     elif table_name == 'three_min_ohlc':
+            #         task = asyncio.create_task(self.db.Insert_three_min_ohlc_proc_batch(batch_data))
+            #         tasks.append(task)
+            #     elif table_name == 'five_min_ohlc':
+            #         task = asyncio.create_task(self.db.Insert_five_min_ohlc_proc_batch(batch_data))
+            #         tasks.append(task)
+            #     elif table_name == 'ten_min_ohlc':
+            #         task = asyncio.create_task(self.db.Insert_ten_min_ohlc_proc_batch(batch_data))
+            #         tasks.append(task)
+            #     elif table_name == 'fifteen_min_ohlc':
+            #         task = asyncio.create_task(self.db.Insert_fifteen_min_ohlc_proc_batch(batch_data))
+            #         tasks.append(task)
+            #     elif table_name == 'thirty_min_ohlc':
+            #         task = asyncio.create_task(self.db.Insert_thirty_min_ohlc_proc_batch(batch_data))
+            #         tasks.append(task)
+            #     elif table_name == 'one_hour_ohlc':
+            #         task = asyncio.create_task(self.db.Insert_hour_ohlc_proc_batch(batch_data))
+            #         tasks.append(task)
                 
             if log_batch:
                 batch_insert_trade_logs.delay(log_batch)
@@ -1260,12 +1301,46 @@ async def main():
     start = Start()
     await start.start_pool()
     start.priority_stocks_tpl = await start.db.get_priority_instruments_to_trade()
-    start.df_priority_stocks = pd.DataFrame(start.priority_stocks_tpl, columns=['instrument_token', 'symbol', 'basket_id'])
-
+    start.df_priority_stocks = pd.DataFrame(start.priority_stocks_tpl, columns=['instrument_token', 'symbol'])
     all_symbols = start.df_priority_stocks['symbol'].to_list()
+    all_symbols_set = set(all_symbols)
     log_batch = []
+    BATCH_SIZE = 500
     start_time = time.time()
-    info = ''
+
+    # create cache Current solution 194.7 seconds vs 130 seconds
+    # for interval, table_name in start.interval_to_table.items():
+    #     prvdata = await start.db.get_old_data_limit(table_name)
+    #     unique_symbols = prvdata['symbol'].unique()
+    #     unique_symbols_set = set(unique_symbols)
+    #     missing_symbols = all_symbols_set - unique_symbols_set
+    #     missing_symbols_list = list(missing_symbols)
+    #     for s_value, group_df in prvdata.groupby('symbol'):
+    #         if s_value in all_symbols:
+    #             l = len(group_df)
+    #             if l < 400:
+    #                 missing_symbols_list.append(s_value)
+    #             else:
+    #                 group_df = group_df.tail(500)
+    #                 ohlc_np = group_df[['open', 'high', 'low', 'close']].values.astype(float)
+    #                 start.data_collections[interval][s_value] = ohlc_np
+    #                 group_df['datetime'] = pd.to_datetime(group_df['datetime'])
+    #                 datetime_list = group_df['datetime'].tolist()
+    #                 start.dates_collections[interval][s_value] = datetime_list
+    #     for symbol in missing_symbols_list:
+    #         group_df = await start.db.get_old_data_by_symbol(table_name, symbol)
+    #         if len(group_df) > 0:
+    #             ohlc_np = group_df[['open', 'high', 'low', 'close']].values.astype(float)
+    #             start.data_collections[interval][symbol] = ohlc_np
+    #             group_df['datetime'] = pd.to_datetime(group_df['datetime'])
+    #             datetime_list = group_df['datetime'].tolist()
+    #             start.dates_collections[interval][symbol] = datetime_list
+    #         else:
+    #             info = f'Data not found for {symbol} {table_name}'
+    #             #await start.db.insert_trade_log(date_log=start.today, module='main', activity='cache creation', important_data=info, priority=4, strategy_trade_id = '', timestamp=datetime.now())
+    #             log_batch.append((start.today, 'main', 'cache creation', info, 2, datetime.now())) 
+
+#------------------ Temp
     for interval, table_name in start.interval_to_table.items():
         for symbol in all_symbols:
             group_df = await start.db.get_old_data_by_symbol(table_name, symbol)
@@ -1278,23 +1353,14 @@ async def main():
             else:
                 info = f'Data not found for {symbol} {table_name}'
                 log_batch.append((start.today, 'main', 'cache creation', info, 2, datetime.now())) 
-   
-    # perform dummy operations to compile functions
-    open_prices = np.array([100.0, 102.5, 101.8, 103.0, 104.2, 105.0, 106.5, 107.2, 108.0, 109.5])
-    high_prices = np.array([102.0, 103.5, 102.8, 104.5, 105.0, 106.0, 107.8, 108.5, 109.0, 110.5])
-    low_prices = np.array([99.5, 101.0, 100.5, 102.0, 103.5, 104.0, 105.8, 106.0, 107.5, 108.5])
-    close_prices = np.array([101.5, 102.2, 101.2, 104.0, 104.8, 105.5, 107.0, 107.8, 108.5, 109.8])
 
-    heikin_ashi_numpy(open_prices, high_prices, low_prices, close_prices)
-    linear_regression_channel_numba(close_prices, 8, 2)
-    psar_data = psar(high_prices, low_prices, close_prices, af0=float(0.01), af=float(0.1))
-    get_psar_signals(close_prices, psar_data)
-    calc_fastStochastics(low_prices, high_prices, close_prices, 8, 3, 3)
-    # ------------- end dummy operations
 
-    # end_time = time.time()  
-    # total_time = end_time - start_time
-    # info = f"{total_time=}"
+#--------------
+
+
+    end_time = time.time()  
+    total_time = end_time - start_time
+    info = f"{total_time=}"
 
     start.df_scan_items = await start.db.get_scan_items()
     start.df_custom_indicators = await start.db.get_custom_indicators()
