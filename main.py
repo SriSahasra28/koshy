@@ -699,7 +699,9 @@ class Start(object):
                     Insert_hour_ohlc_proc_batch.delay(batch_data) 
                 
             if log_batch:
-                batch_insert_trade_logs.delay(log_batch)
+                #batch_insert_trade_logs.delay(log_batch)
+                batch_insert_trade_logs.apply_async(args=[log_batch], queue='low_priority')
+
                 log_batch= []
             print('done ', table_name,' ', exchange_code)
             await asyncio.gather(*tasks)
@@ -854,7 +856,8 @@ class Start(object):
                     log_batch.append((self.today, 'download_ohlc_2min', 'len tasks =0', info, 3, datetime.now()))
                     #await self.db.insert_trade_log(date_log=self.today, module='download_ohlc_2min', activity='len tasks =0', important_data=info, priority=3, strategy_trade_id = '', timestamp=end_date_now)
         if log_batch:
-            batch_insert_trade_logs.delay(log_batch)
+            #batch_insert_trade_logs.delay(log_batch)
+            batch_insert_trade_logs.apply_async(args=[log_batch], queue='low_priority')
             log_batch= []
         if count > 0:
             return 1, 'None', count
@@ -898,21 +901,21 @@ class Start(object):
                 if self.loglevel >= 2:
                     info = f"cache datetime available {cutoff_datetime=}{exchange_code} {interval}"
                     print(info)
-                    #og_batch.append((self.today, '2min_v2', 'check cache', info, 2, datetime.now()))
+                    log_batch.append((self.today, '2min_v2', 'check cache', info, 2, datetime.now()))
             else:
                 print('in else')
                 cache_unavailable += 1
                 if self.loglevel >= 0:
                     info = f"No cache {exchange_code} {interval}"
-                    print(info)
-                    #log_batch.append((self.today, '2min_v2', 'check cache', info, 2, datetime.now()))
+                    #print(info)
+                    log_batch.append((self.today, '2min_v2', 'check cache', info, 2, datetime.now()))
 
                 group_df = await self.db.get_old_data_by_symbol(table_name, exchange_code)
                 if len(group_df) > 0:
                     if self.loglevel >= 1:
                         info = f"Data found in db {exchange_code} {interval} {len(group_df)} rows"
-                        print(info)
-                        #log_batch.append((self.today, '2min_v2', 'get_old_data_by_symbol', info, 2, datetime.now()))
+                        #print(info)
+                        log_batch.append((self.today, '2min_v2', 'get_old_data_by_symbol', info, 2, datetime.now()))
 
                     ohlc_np = group_df[['open', 'high', 'low', 'close']].values.astype(float)
                     self.data_collections[interval][exchange_code] = ohlc_np
@@ -924,8 +927,8 @@ class Start(object):
                     data_unavailable_db += 1
                     if self.loglevel >= 1:
                         info = f"Data not found in db {exchange_code} {interval}"
-                        print(info)
-                        #log_batch.append((self.today, '2min_v2', 'get_old_data_by_symbol', info, 2, datetime.now()))
+                        #print(info)
+                        log_batch.append((self.today, '2min_v2', 'get_old_data_by_symbol', info, 2, datetime.now()))
                     
                     last_datetime = datetime.today() - timedelta(days=90)
                     last_datetime = last_datetime.replace(hour=9, minute=15, second=0, microsecond=0)
@@ -942,16 +945,16 @@ class Start(object):
                 if cutoff_datetime >= end_date_now:
                     if self.loglevel >= 2:
                         info = f"skipping cutoff_datetime:{cutoff_datetime} >= end_date_now:{end_date_now} {instrument_token} {interval}"
-                        print(info)
-                        #log_batch.append((self.today, '2min_v2', 'skip', info, 2, datetime.now()))
+                        #print(info)
+                        log_batch.append((self.today, '2min_v2', 'skip', info, 2, datetime.now()))
                     skipped += 1
                     continue
                 
                 if self.zerodha_last_trans != None and last_datetime >= self.zerodha_last_trans:
                     if self.loglevel >= 2:
                         info = f"last_dtime:{last_datetime} >= zeroda_l_tran:{self.zerodha_last_trans} {exchange_code} {interval}"
-                        print(info)
-                        #log_batch.append((self.today, '2min_v2', 'skip', info, 2, datetime.now()))
+                        #print(info)
+                        log_batch.append((self.today, '2min_v2', 'skip', info, 2, datetime.now()))
                     skipped += 1
                     continue
                 else:
@@ -968,30 +971,30 @@ class Start(object):
                 data_unavailable_zerodha += 1
                 if self.loglevel >= 1:
                     info = f"Error in getting 1 min data from cache {exchange_code} {e}"
-                    #log_batch.append((self.today, 'download_ohlc_2min', 'error get 1min', info, 4, datetime.now()))
-                    print(info)
+                    log_batch.append((self.today, 'download_ohlc_2min', 'error get 1min', info, 4, datetime.now()))
+                    #print(info)
                 result = -1
 
             if status == 1 and len(data) > 0:
                 if self.loglevel >= 2:
                     info = f"{len(data)} rows available {exchange_code} {interval}"
-                    #log_batch.append((self.today, '2min_v2', '1min-cache', info, 2, datetime.now()))
-                    print(info)
+                    log_batch.append((self.today, '2min_v2', '1min-cache', info, 2, datetime.now()))
+                    #print(info)
                 result = 1
             else:
                 data_unavailable_zerodha += 1
                 if self.loglevel >= 2:
                     info = f'skip len data = 0 {exchange_code} {interval}'
-                    #log_batch.append((self.today, '2min_v2', '1min-cache', info, 2, datetime.now()))
-                    print(info)
+                    log_batch.append((self.today, '2min_v2', '1min-cache', info, 2, datetime.now()))
+                    #print(info)
 
                 skipped += 1
                 continue
             if result == -1:
                 if self.loglevel >= 2:
                     info = f"Error 1 min cache skip {exchange_code} {interval} "
-                    #log_batch.append((self.today, '2min_v2', '1min-cache', info, 2, datetime.now()))
-                    print(info)
+                    log_batch.append((self.today, '2min_v2', '1min-cache', info, 2, datetime.now()))
+                    #print(info)
                     
                 skipped += 1
                 continue
@@ -1006,8 +1009,8 @@ class Start(object):
             if len(data) == 0:
                 if self.loglevel >= 2:
                     info = f'skip len data after resample == 0'
-                    #log_batch.append((self.today, '2min_v2', 'len df =0', info, 4, datetime.now()))
-                    print(info)
+                    log_batch.append((self.today, '2min_v2', 'len df =0', info, 4, datetime.now()))
+                    #print(info)
                 skipped += 1
                 continue
             data.reset_index(inplace=True, names="datetime")
@@ -1045,8 +1048,8 @@ class Start(object):
             if len(data_np_new) == 0:
                 if self.loglevel >= 2:
                     info = f"skip {exchange_code} {interval}"
-                    #log_batch.append((self.today, '2min_v2', 'data_np_new = 0', info, 2, datetime.now()))
-                    print(info)
+                    log_batch.append((self.today, '2min_v2', 'data_np_new = 0', info, 2, datetime.now()))
+                    #print(info)
                 skipped += 1
                 continue
 
@@ -1063,8 +1066,8 @@ class Start(object):
 
             if self.loglevel >= 2:
                 info = f"calc heikin_ashi  {exchange_code} {interval}"
-                #log_batch.append((self.today, '2min_v2', 'calc heikin_ashi', info, 2, datetime.now()))
-                print(info)
+                log_batch.append((self.today, '2min_v2', 'calc heikin_ashi', info, 2, datetime.now()))
+                #print(info)
 
             ha_open, ha_high, ha_low, ha_close = heikin_ashi_numpy(data_combined[:,0], data_combined[:,1], data_combined[:,2], data_combined[:,3])
             ha_combined = np.column_stack((ha_open, ha_high, ha_low, ha_close))
@@ -1072,8 +1075,8 @@ class Start(object):
             # -------------------  Alert Code here --------------------------------
             if self.loglevel >= 2:
                 info = f'Alert code begin {exchange_code} {interval}'
-                #log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'start alert code', info, 2, datetime.now()))
-                print(info)
+                log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'start alert code', info, 2, datetime.now()))
+                #print(info)
 
             digit_name =  self.interval_to_digit.get(interval, None)
             column_name = str(digit_name) + 'min'
@@ -1083,31 +1086,31 @@ class Start(object):
             if df_items.empty:
                 if self.loglevel >= 1:
                     info = f'df_items empty skip {exchange_code} {interval}'
-                    #log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'no alert items', info, 2, datetime.now()))
-                    print(info)
+                    log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'no alert items', info, 2, datetime.now()))
+                    #print(info)
 
                 alert_check = False
                 alerts_skip += 1
             if basket_id == None:
                 info = f'basket_id None skip {exchange_code} {interval}'
-                #log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'basket_id None', info, 2, datetime.now()))
-                print(info)
+                log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'basket_id None', info, 2, datetime.now()))
+                #print(info)
                 alert_check = False
             df_items = df_items[df_items['basket_id'] == basket_id]
             conditions = df_items.conditionID.unique()
             if len(conditions) == 0:
                 if self.loglevel >= 1:
                     info = f'No condition {exchange_code} {interval}'
-                    #log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'no conditions', info, 2, datetime.now()))
-                    print(info)
+                    log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'no conditions', info, 2, datetime.now()))
+                    #print(info)
                 alerts_skip += 1
                 alert_check = False
             if alert_check:
                 alerts_process += 1
                 if self.loglevel >= 2:
                     info = f'Alert check true {exchange_code} {interval}'
-                    #log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'alert check', info, 2, datetime.now()))
-                    print(info)
+                    log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'alert check', info, 2, datetime.now()))
+                    #print(info)
                 for conditionID in conditions:
                     if self.loglevel >= 2:
                         info = f"{conditionID=} {exchange_code} {interval}"
@@ -1266,15 +1269,16 @@ class Start(object):
                 batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val))
                 if len(batch_data) >= BATCH_SIZE:
                     # ------------------- Temporarily Disabled ------------------
-                    #Insert_two_min_ohlc_proc_batch.delay(batch_data)
+                    Insert_two_min_ohlc_proc_batch.delay(batch_data)
                     batch_data = []
             if batch_data:
                 # ------------------- Temporarily Disabled ------------------
-                #Insert_two_min_ohlc_proc_batch.delay(batch_data)
+                Insert_two_min_ohlc_proc_batch.delay(batch_data)
                 pass
                 
             if log_batch:
                 # batch_insert_trade_logs.delay(log_batch)
+                batch_insert_trade_logs.apply_async(args=[log_batch], queue='low_priority')
                 log_batch= []
             print('done ', table_name,' ', exchange_code)
             #await asyncio.gather(*tasks)
@@ -1382,7 +1386,9 @@ class Start(object):
             log_batch_main.append((self.today, 'download_current_data', 'time_taken', info, 2, datetime.now()))
             #await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
         if log_batch_main:
-            batch_insert_trade_logs.delay(log_batch_main)
+            #batch_insert_trade_logs.delay(log_batch_main)
+            batch_insert_trade_logs.apply_async(args=[log_batch_main], queue='low_priority')
+
             log_batch_main = []
     
     async def checkAlerts_interval(self, interval, priority_stocks_tpl, hlfpid, PSAR_acceleration, PSAR_max_acceleration, stoch_period, k_avg, d_avg, psarCandles, LineThreshold, signaldirection, lrcangletype, lrcanglestart, lrcangleend, scanID, lrc_period, lrc_stdev):
@@ -1699,7 +1705,9 @@ async def main():
     start.df_HLFP = await start.db.get_hlfp()
 
     if log_batch:
-        batch_insert_trade_logs.delay(log_batch)
+        #batch_insert_trade_logs.delay(log_batch)
+        batch_insert_trade_logs.apply_async(args=[log_batch], queue='low_priority')
+
         log_batch= []
 
     last_run_minute = None  
