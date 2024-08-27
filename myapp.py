@@ -20,7 +20,17 @@ DB_CONFIG = {
     'password': set[1],
     'database': set[4]
 }
-@app.task
+
+DB_CONFIG_log = {
+    'host': "103.48.51.95",
+    'port': "3306",
+    'user': "satya",
+    'password': "Airforce*123",
+    'database': 'test_k'
+}
+
+# Low-priority task (assigned to 'low_priority' queue)
+@app.task(queue='low_priority')
 def batch_insert_trade_logs(batch_data):
     """
     Insert batch data into the database using the stored procedure `InsertTradeLog`.
@@ -29,7 +39,7 @@ def batch_insert_trade_logs(batch_data):
         batch_data (list of tuples): List of tuples where each tuple contains data for the procedure.
     """
     try:
-        con = sqlConnector.connect(**DB_CONFIG)
+        con = sqlConnector.connect(**DB_CONFIG_log)
         cursor = con.cursor()
         procedure_call = "CALL InsertTradeLog(%s, %s, %s, %s, %s, %s)"
 
@@ -46,6 +56,7 @@ def batch_insert_trade_logs(batch_data):
         cursor.close()
         con.close()
 
+# High-priority task (default queue)
 @app.task
 def insert_one_min_ohlc_proc_batch(batch_data):
     """
