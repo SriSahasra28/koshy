@@ -276,7 +276,7 @@ class dbconnection:
                 async with self.pool.acquire() as conn:
                     async with conn.cursor() as cur:
                         await cur.executemany(
-                            "CALL Insert_one_min_ohlc(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                             "CALL Insert_one_min_ohlc(%s, %s, %s, %s, %s, %s)",
                             batch_data
                         )
                         await conn.commit()
