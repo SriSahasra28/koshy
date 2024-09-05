@@ -256,7 +256,7 @@ class Start(object):
                 print(info)
             return 0
 
-    async def test_alert(self, exchange_code, interval, start_datetime):
+    async def test_alert(self, exchange_code, interval, start_datetime, basket_id):
         table_name =  self.interval_to_table.get(interval, None)
         self.df_scan_items = await self.db.get_scan_items()
         self.df_custom_indicators = await self.db.get_custom_indicators()
@@ -268,14 +268,20 @@ class Start(object):
         data_df.reset_index(inplace=True, drop=True)
         #data_df = data_df[data_df.datetime >= start_datetime]
         total_rows = len(data_df)
-        first_index = data_df[data_df['datetime'] >= start_datetime].index[0]
+        filt_data_df = data_df[data_df['datetime'] >= start_datetime]
+        first_index = -1
+        if len(filt_data_df) > 0:
+            first_index = data_df[data_df['datetime'] >= start_datetime].index[0]
+        else:
+            #print(f'No data {exchange_code}')
+            return
         # print("-  -" * 20)
         # print(exchange_code, interval)
-        if log:
-            print(f"data_df:{total_rows=} {first_index=}")
+        # if log:
+        #     print(f"data_df:{total_rows=} {first_index=}")
 
         if total_rows == 0:
-            print('Candle Data not Available skip')
+            #print('Candle Data not Available skip')
             return
         
         data_all = data_df[['open', 'high', 'low', 'close']].values.astype(float)
@@ -297,10 +303,14 @@ class Start(object):
             if df_items.empty:
                 print('df_items empty skip')
                 alert_check = False
-                
+            if basket_id == None:
+                alert_check = False
+            else:
+                df_items = df_items[df_items['basket_id'] == basket_id]
+
             conditions = df_items.conditionID.unique()
             if len(conditions) == 0:
-                print('No condition')
+                #print('No condition')
                 alert_check = False
             if alert_check:
                 for conditionID in conditions:
@@ -353,6 +363,7 @@ class Start(object):
                         candles_to_check = 1
                         if crossover_index < candles_to_check:
                             candles_to_check = crossover_index
+                        today = datetime.today().date()
                         for i in range(-candles_to_check, 0):
                             psar_signal = signals[i] # psar_signal = signals[-1]
                             if log:
@@ -380,6 +391,9 @@ class Start(object):
                                     info = f"{open_ha=} {high_ha=} {low_ha=} {close_ha=} {LRL_value=} {candle_color=} {hlfpid=}"
                                     print(info)    
                                 alert_timestamp = dates_partial[i]
+                                if alert_timestamp.date() != today:
+                                    #print(f'{alert_timestamp=} not today {exchange_code}')
+                                    continue 
                                 if hlfpid == 1:
                                     if candle_color == 'g' and high_ha < LRL_value:
                                         result = await self.process_alert(exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name)
@@ -414,13 +428,19 @@ async def main():
     
     start_datetime = pd.Timestamp('2024-08-22 09:15:00')
     interval = 'minute'
-    # start.priority_stocks_tpl = await start.db.get_priority_instruments_to_trade()
-    # start.df_priority_stocks = pd.DataFrame(start.priority_stocks_tpl, columns=['instrument_token', 'symbol'])
-    # all_symbols = start.df_priority_stocks['symbol'].to_list()
-    symbol = 'RELIANCE24AUG2940CE'
-    await start.test_alert(symbol, interval, start_datetime)
-    # for symbol in all_symbols:
-    #     await start.test_alert(symbol, interval, start_datetime)
+    start.priority_stocks_tpl = await start.db.get_priority_instruments_to_trade()
+    start.df_priority_stocks = pd.DataFrame(start.priority_stocks_tpl, columns=['instrument_token', 'symbol', 'basket_id'])
+    all_symbols = start.df_priority_stocks['symbol'].to_list()
+    #symbol = 'RELIANCE24AUG2940CE'
+    #await start.test_alert(symbol, interval, start_datetime)
+    #for symbol in all_symbols:
+    for index, row in start.df_priority_stocks.iterrows():
+        exchange_code = row['symbol']
+        instrument_token = row['instrument_token'] # new added
+        basket_id = None
+        if 'basket_id' in row:
+            basket_id = row['basket_id'] 
+        await start.test_alert(exchange_code, interval, start_datetime, basket_id)
 
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
