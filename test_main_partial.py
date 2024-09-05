@@ -692,7 +692,7 @@ class Start(object):
                 tasks.append(task)
                 
             if log_batch:
-                task = asyncio.create_task(self.db.insert_trade_log_v2(log_batch))
+                task = asyncio.create_task(self.db.insert_trade_logs_batch(log_batch))
                 tasks.append(task)
                 log_batch= []
             print('done ', table_name,' ', exchange_code)
@@ -1019,7 +1019,7 @@ async def main():
 
     tasks = []
     if log_batch:
-        task = asyncio.create_task(start.db.insert_trade_log_v2(log_batch))
+        task = asyncio.create_task(start.db.insert_trade_logs_batch(log_batch))
         tasks.append(task)
         log_batch= []
     await asyncio.gather(*tasks)

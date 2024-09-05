@@ -945,17 +945,20 @@ class dbconnection:
         except Exception as e:
             raise e
     
-    async def insert_trade_log_v2(self, date_log, module, activity, important_data, priority, timestamp):
+    async def insert_trade_logs_batch(self, logs_batch):
         try:
             async with self.pool.acquire() as conn:
                 async with conn.cursor() as cur:
-                    await cur.execute(
-                    "INSERT INTO trade_logs(date_log, module, activity, important_data, priority, `timestamp`) VALUES (%s, %s, %s, %s, %s, %s)",
-                    (date_log, module, activity, important_data, priority, timestamp)
-                    )
+                    # Batch insertion
+                    query = """
+                    INSERT INTO trade_logs(date_log, module, activity, important_data, priority, `timestamp`) 
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """
+                    await cur.executemany(query, logs_batch)
                     await conn.commit()
         except Exception as e:
             raise e
+
     async def run_query(self, query):
         print(query)
         try:
