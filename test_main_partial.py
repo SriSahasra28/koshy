@@ -710,13 +710,14 @@ class Start(object):
             self.zerodha_last_trans = data[-1]['date'].replace(tzinfo=None).replace(second=0, microsecond=0)
         interval = 'minute'
         start_time = time.time()
-        total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token = await self.download_ohlc_v2(self.df_priority_stocks, interval)
+        #total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token = await self.download_ohlc_v2(self.df_priority_stocks, interval)
+        await self.download_ohlc_v2(self.df_priority_stocks, interval)
         end_time = time.time()  
         total_time = end_time - start_time
         digit_name =  self.interval_to_digit.get(interval, None)
-        await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, digit_name, total_time)
-        info = f'{total_time=} to download {interval} data'
-        await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
+        #await self.db.insert_into_dashboard(total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, current_datetime, digit_name, total_time)
+        #info = f'{total_time=} to download {interval} data'
+        #await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
         
 
     
