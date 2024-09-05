@@ -718,11 +718,7 @@ class Start(object):
         info = f'{total_time=} to download {interval} data'
         await self.db.insert_trade_log(date_log=self.today, module='download_current_data', activity='time_taken', important_data=info, priority=5, strategy_trade_id = '', timestamp=datetime.now())
         
-        if log_batch_main:
-            #batch_insert_trade_logs.delay(log_batch_main)
-            batch_insert_trade_logs.apply_async(args=[log_batch_main], queue='low_priority')
 
-            log_batch_main = []
     
     async def checkAlerts_interval(self, interval, priority_stocks_tpl, hlfpid, PSAR_acceleration, PSAR_max_acceleration, stoch_period, k_avg, d_avg, psarCandles, LineThreshold, signaldirection, lrcangletype, lrcanglestart, lrcangleend, scanID, lrc_period, lrc_stdev):
         #print('in CheckAlerts_interval:', interval)
@@ -1020,12 +1016,13 @@ async def main():
     start.df_conditions = await start.db.get_conditions()
     start.df_HLFP = await start.db.get_hlfp()
 
+
+    tasks = []
     if log_batch:
-        #batch_insert_trade_logs.delay(log_batch)
-        batch_insert_trade_logs.apply_async(args=[log_batch], queue='low_priority')
-
+        task = asyncio.create_task(start.db.insert_trade_log_v2(log_batch))
+        tasks.append(task)
         log_batch= []
-
+    await asyncio.gather(*tasks)
     last_run_minute = None  
 
     while True:
