@@ -243,12 +243,14 @@ class Start(object):
             print(exchange_code, digit_name, ' min')
             info = f"Alert {exchange_code} {alert_timestamp} K crossover: {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}"
             print(info)
+            await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name, datetime.now())
             return 1
         elif lrcangletype != 'custom':
             print("-  -" * 20)
             print(exchange_code, digit_name, ' min')
             info = f'Alert {exchange_code} {alert_timestamp} K crossover {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}'
             print(info)
+            await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name, datetime.now())
             return 1
         else:
             if log:
@@ -427,7 +429,7 @@ async def main():
     await start.start_pool()
     
     start_datetime = pd.Timestamp('2024-08-22 09:15:00')
-    interval = 'minute'
+    interval = '60minute'
     start.priority_stocks_tpl = await start.db.get_priority_instruments_to_trade()
     start.df_priority_stocks = pd.DataFrame(start.priority_stocks_tpl, columns=['instrument_token', 'symbol', 'basket_id'])
     all_symbols = start.df_priority_stocks['symbol'].to_list()

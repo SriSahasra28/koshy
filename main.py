@@ -517,6 +517,11 @@ class Start(object):
                         log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'process cond', info, 2, datetime.now()))
 
                     condition_filtered = self.df_conditions[self.df_conditions['id'] == conditionID]
+                    if len(condition_filtered) == 0:
+                        info = f'len(condition_filtered) == 0 {conditionID=} {exchange_code} {interval}'
+                        log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'conditionFilter', info, 2, datetime.now()))
+                        continue
+
                     scanID = df_items.loc[(df_items[column_name] == 1) & (df_items['conditionID'] == conditionID), 'scanID'].iloc[0]     
                     lrcid = condition_filtered['lrcid'].iloc[0]
                     lrc_filtered = self.df_custom_indicators[self.df_custom_indicators.id == lrcid]
@@ -1558,19 +1563,19 @@ async def main():
         log_batch= []
 
     last_run_minute = None  
-    interval = '2minute'
-    start_time = time.time()
+    # interval = '2minute'
+    # start_time = time.time()
 
-    result = await start.download_ohlc_2min_v2(start.df_priority_stocks)
-    if result is None:
-        print("download_ohlc_2min_v2 returned None")
-    else:
-        total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token = result
+    # result = await start.download_ohlc_2min_v2(start.df_priority_stocks)
+    # if result is None:
+    #     print("download_ohlc_2min_v2 returned None")
+    # else:
+    #     total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token = result
 
-        end_time = time.time()  
-        total_time = end_time - start_time
-        print(f"{total_time=}")
-    return
+    #     end_time = time.time()  
+    #     total_time = end_time - start_time
+    #     print(f"{total_time=}")
+    # return
     while True:
         CurrentDateTime = datetime.now()
         current_time = CurrentDateTime.time()
