@@ -29,18 +29,19 @@ def initialize():
     kws.on_connect = on_connect
     kws.on_reconnect = on_reconnect
     kws.on_noreconnect = on_noreconnect
-    #global tokens, nifty_fut, banknifty_fut, fut_list
+    global tokens, nifty_fut, banknifty_fut, fut_list
+    tokens = []
     tokens = db.get_tokens_for_tick()
     if len(tokens) < 10:
         print(f"Error Number of {tokens=} < 10")
     db.truncate_latest_price()
     db.initialize_latest_price(tokens)
     
-    # df_fut = db.get_instrument_token_index('NIFTY')
-    # if len(df_fut) == 0:
-    #     print('Error Nifty Index future not found')
-    # else:
-    #     nifty_fut = df_fut.instrument_token.iloc[0]
+    df_fut = db.get_instrument_token_index('NIFTY')
+    if len(df_fut) == 0:
+        print('Error Nifty Index future not found')
+    else:
+        nifty_fut = df_fut.instrument_token.iloc[0]
     # # Banknifty future
     # df_fut = db.get_instrument_token_index('BANKNIFTY')
     # if len(df_fut) == 0:
@@ -74,7 +75,7 @@ def on_ticks(ws, ticks):
 
             #if int(instrument_token_value)  in fut_list:
             db.insert_market_data_intraday_V2(instrument_token_value, last_price_value, last_traded_quantity_value, average_traded_price_value, volume_traded_value, total_buy_quantity_value, total_sell_quantity_value, open_value, high_value, low_value, close_value, change_value, last_trade_time_value)
-            db.update_latest_price(instrument_token_value,  last_price_value, volume_traded_value, average_traded_price_value)
+            #db.update_latest_price(instrument_token_value,  last_price_value, volume_traded_value, average_traded_price_value)
             if now.hour == 15 and now.minute >= 30:
                 ws.close()
 def on_connect(ws, response):
