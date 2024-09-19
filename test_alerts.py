@@ -15,7 +15,7 @@ from background.async_db import dbconnection
 warnings.filterwarnings('ignore')
 from numba import jit
 import time
-log = False
+log = True
 
 @jit(nopython=True)
 def calc_fastStochastics(low, high, close, lookback_period, d_period, k_smoothing_period=1):
@@ -258,29 +258,34 @@ class Start(object):
                 print(info)
             return 0
 
-    async def test_alert(self, exchange_code, interval, start_datetime, basket_id):
+    async def test_alert(self, exchange_code, interval, start_datetime, basket_id, cutoff=None):
         table_name =  self.interval_to_table.get(interval, None)
         self.df_scan_items = await self.db.get_scan_items()
         self.df_custom_indicators = await self.db.get_custom_indicators()
         self.df_conditions = await self.db.get_conditions()
         self.df_HLFP = await self.db.get_hlfp()
-
-        data_df = await self.db.get_old_data_by_symbol(table_name, exchange_code)
+        if cutoff == None:
+            print('in cutoff None')
+            data_df = await self.db.get_old_data_by_symbol(table_name, exchange_code)
+        else:
+            print('in else')
+            data_df = await self.db.get_old_data_by_symbol_prior(table_name, exchange_code, cutoff)
         data_df['datetime'] = pd.to_datetime(data_df['datetime'])
         data_df.reset_index(inplace=True, drop=True)
         #data_df = data_df[data_df.datetime >= start_datetime]
         total_rows = len(data_df)
+        print(f"{total_rows=}")
         filt_data_df = data_df[data_df['datetime'] >= start_datetime]
         first_index = -1
         if len(filt_data_df) > 0:
             first_index = data_df[data_df['datetime'] >= start_datetime].index[0]
         else:
-            #print(f'No data {exchange_code}')
+            print(f'No data after filter')
             return
-        # print("-  -" * 20)
-        # print(exchange_code, interval)
+        print("-  -" * 20)
+        print(exchange_code, interval)
         # if log:
-        #     print(f"data_df:{total_rows=} {first_index=}")
+        print(f"data_df:{total_rows=} {first_index=}")
 
         if total_rows == 0:
             #print('Candle Data not Available skip')
@@ -428,21 +433,23 @@ async def main():
     start = Start()
     await start.start_pool()
     
-    start_datetime = pd.Timestamp('2024-08-22 09:15:00')
-    interval = '60minute'
-    start.priority_stocks_tpl = await start.db.get_priority_instruments_to_trade()
-    start.df_priority_stocks = pd.DataFrame(start.priority_stocks_tpl, columns=['instrument_token', 'symbol', 'basket_id'])
-    all_symbols = start.df_priority_stocks['symbol'].to_list()
-    #symbol = 'RELIANCE24AUG2940CE'
+    start_datetime = pd.Timestamp('2024-09-10 11:15:00')
+    interval = '5minute'
+    # start.priority_stocks_tpl = await start.db.get_priority_instruments_to_trade()
+    # start.df_priority_stocks = pd.DataFrame(start.priority_stocks_tpl, columns=['instrument_token', 'symbol', 'basket_id'])
+    # all_symbols = start.df_priority_stocks['symbol'].to_list()
+    
+    symbol = 'FINNIFTY2491723450PE'
     #await start.test_alert(symbol, interval, start_datetime)
+    await start.test_alert(symbol, interval, start_datetime, 19, '2024-09-11 09:20:00')
     #for symbol in all_symbols:
-    for index, row in start.df_priority_stocks.iterrows():
-        exchange_code = row['symbol']
-        instrument_token = row['instrument_token'] # new added
-        basket_id = None
-        if 'basket_id' in row:
-            basket_id = row['basket_id'] 
-        await start.test_alert(exchange_code, interval, start_datetime, basket_id)
+    # for index, row in start.df_priority_stocks.iterrows():
+    #     exchange_code = row['symbol']
+    #     instrument_token = row['instrument_token'] # new added
+    #     basket_id = None
+    #     if 'basket_id' in row:
+    #         basket_id = row['basket_id'] 
+    #     await start.test_alert(exchange_code, interval, start_datetime, basket_id)
 
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()

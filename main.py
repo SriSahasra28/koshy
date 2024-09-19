@@ -1507,8 +1507,6 @@ class Start(object):
                 await self.db.insert_trade_log(date_log=self.today, module='checkAlerts_interval', activity='no angle', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now())
             return 0
 
-
-
 async def main():
     start = Start()
     await start.start_pool()
