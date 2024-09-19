@@ -381,38 +381,42 @@ async def main():
     r = redis.from_url('redis://localhost', decode_responses=True)
     interval = 'minute'
     table_name = 'one_min_ohlc'
-
-    for row in start.df_priority_stocks.itertuples(index=False):
-        instrument_token = row.instrument_token
-        symbol = row.symbol
-        # Fetch old data from MySQL for the given symbol
-        old_data_df = await start.db.get_old_data_by_symbol(table_name, symbol)
-        if len(old_data_df) > 0:
-            # Loop through the data and store it in Redis
-            for row2 in old_data_df.itertuples(index=False):
-                datetime_str = row2.datetime.strftime("%Y-%m-%d %H:%M:%S")
-                final_ohlc = {
-                    "timestamp": datetime_str,  
-                    "open": float(row2.open),
-                    "high": float(row2.high),
-                    "low": float(row2.low),
-                    "close": float(row2.close)  
-                }
-                #print(final_ohlc)
-                sorted_set_key = f"ohlc_sorted:{instrument_token}"
-                timestamp = row2.datetime
-                timestamp_score = int(timestamp.timestamp())
-                print(f"{sorted_set_key=}")
-                try:
-                    # Add the OHLC data to Redis as a sorted set with timestamp as the score
-                    await r.zadd(sorted_set_key, {json.dumps(final_ohlc): timestamp_score})
-                except Exception as e:
-                    print(f"Error inserting OHLC data into Redis for {symbol}: {e}")
-        #     break
-        # break
-        else:
-            info = f'Data not found for {symbol} {table_name}'
-            #log_batch.append((start.today, 'main', 'cache creation', info, 2, datetime.now())) 
+    current_time = datetime.now().time()
+    target_time = tm(9, 16)
+    if current_time < target_time:
+        print('download historical data')
+        for row in start.df_priority_stocks.itertuples(index=False):
+            instrument_token = row.instrument_token
+            symbol = row.symbol
+            # Fetch old data from MySQL for the given symbol
+            old_data_df = await start.db.get_old_data_by_symbol(table_name, symbol)
+            if len(old_data_df) > 0:
+                # Loop through the data and store it in Redis
+                for row2 in old_data_df.itertuples(index=False):
+                    datetime_str = row2.datetime.strftime("%Y-%m-%d %H:%M:%S")
+                    final_ohlc = {
+                        "timestamp": datetime_str,  
+                        "open": float(row2.open),
+                        "high": float(row2.high),
+                        "low": float(row2.low),
+                        "close": float(row2.close)  
+                    }
+                    #print(final_ohlc)
+                    sorted_set_key = f"ohlc_sorted:{instrument_token}"
+                    timestamp = row2.datetime
+                    timestamp_score = int(timestamp.timestamp())
+                    print(f"{sorted_set_key=}")
+                    try:
+                        # Add the OHLC data to Redis as a sorted set with timestamp as the score
+                        await r.zadd(sorted_set_key, {json.dumps(final_ohlc): timestamp_score})
+                    except Exception as e:
+                        info = f"Error inserting OHLC data into Redis for {symbol}: {e}"
+                        print(info)
+                        log_batch.append((start.today, 'main', 'cache redis', info, 2, datetime.now())) 
+            else:
+                info = f'Data not found for {symbol} {table_name}'
+                print(info)
+                log_batch.append((start.today, 'main', 'cache creation', info, 2, datetime.now())) 
     end_time = time.time()
     total_time = end_time - start_time
     print(f"total_time loading hist data to redis: {total_time}")
@@ -423,10 +427,9 @@ async def main():
     start.df_conditions = await start.db.get_conditions()
     start.df_HLFP = await start.db.get_hlfp()
 
-    # if log_batch:
-    #     batch_insert_trade_logs.apply_async(args=[log_batch], queue='low_priority')
-
-    #     log_batch= []
+    if log_batch:
+        batch_insert_trade_logs.apply_async(args=[log_batch], queue='low_priority')
+        log_batch= []
 
     last_run_minute = None  
     while True:
