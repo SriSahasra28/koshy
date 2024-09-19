@@ -122,7 +122,7 @@ class Start(object):
             }
 
             sorted_set_key = "Alerts"
-            timestamp_score = int(alert_timestamp.timestamp())
+            timestamp_score = datetime.now().timestamp() 
             await r.zadd(sorted_set_key, {json.dumps(alert_data): timestamp_score})
             return 1
         elif lrcangletype != 'custom':
@@ -138,9 +138,8 @@ class Start(object):
                 "bottime":  datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
                 "conditionID": conditionID  
             }
-
             sorted_set_key = "Alerts"
-            timestamp_score = int(alert_timestamp.timestamp())
+            timestamp_score = datetime.now().timestamp() 
             await r.zadd(sorted_set_key, {json.dumps(alert_data): timestamp_score})
             return 1
         else:
@@ -330,7 +329,6 @@ class Start(object):
             print('done ', exchange_code)
 
         return 1
-
 
     async def process_current_minute(self):
         print('in process_current_minute')
