@@ -21,7 +21,7 @@ from myapp import batch_insert_trade_logs
 from background.indicators import *
 import json
 import redis.asyncio as redis
-
+import gc
 class Start(object):
     def __init__(self):
         self.backtest = 0
@@ -149,11 +149,11 @@ class Start(object):
             return 0
 
     async def process_symbol(self, exchange_code, instrument_token, interval, data_combined, dates_combined, basket_id, r):
-        table_name =  self.interval_to_table.get(interval, None)
-        print(exchange_code)
-        count_iter = 0
+        #table_name =  self.interval_to_table.get(interval, None)
+        print(exchange_code, interval)
+        #count_iter = 0
         log_batch = []
-        BATCH_SIZE = 500   
+        #BATCH_SIZE = 500   
         ha_open, ha_high, ha_low, ha_close = heikin_ashi_numpy(data_combined[:,0], data_combined[:,1], data_combined[:,2], data_combined[:,3])
         ha_combined = np.column_stack((ha_open, ha_high, ha_low, ha_close))
         # if exchange_code in ['MARUTI24SEP11800PE', 'TRENT24SEP7200CE']:
@@ -330,31 +330,42 @@ class Start(object):
 
         return 1
 
+    async def handle_resampling(self, df, interval, symbol, instrument_code, basket_id, r):
+        print('in handle_resampling')
+        resampled_df = df.resample(f'{interval}T').agg({
+            'open': 'first',
+            'high': 'max',
+            'low': 'min',
+            'close': 'last'
+        }).dropna()
+        resampled_df.reset_index(inplace=True)
+        array_data = resampled_df[['open', 'high', 'low', 'close']].to_numpy()
+        timestamps = resampled_df['timestamp'].to_numpy()
+        await self.process_symbol(symbol, instrument_code, f"{interval}minute", array_data, timestamps, basket_id, r)
+
     async def process_current_minute(self):
         print('in process_current_minute')
         log_batch_main = []
         current_datetime = datetime.now()
         r = redis.from_url('redis://localhost', decode_responses=True)
         # ohlc_dtype = [('timestamp', 'U20'), ('open', 'f8'), ('high', 'f8'), ('low', 'f8'), ('close', 'f8')]
+        last_processed = time.time()
         while datetime.now().second < 50:
             instrument_code = await r.rpop('ohlc_ready')
             if instrument_code:
                 instrument_code = instrument_code.decode() if isinstance(instrument_code, bytes) else instrument_code
-                # get symbol for instrument
                 filtered_df = self.df_priority_stocks[self.df_priority_stocks['instrument_token'] == int(instrument_code)]
                 symbol = None
                 basket_id = None
                 if not filtered_df.empty:
-                    symbol = filtered_df['symbol'].values[0]  # Get the first symbol value
+                    symbol = filtered_df['symbol'].values[0] 
                     basket_id = filtered_df['basket_id'].values[0]
-                    #print(f"Symbol for instrument token {instrument_code}: {symbol}")
                 else:
                     print(f"Skipping No symbol found for {instrument_code} type: {type(instrument_code)}")
                     continue
                 # process minute
                 ohlc_sorted_data = await r.zrange('ohlc_sorted:' + instrument_code, 0, -1)
                 ohlc_list = [json.loads(data) for data in ohlc_sorted_data]
-                #ohlc_array = np.array([(item['timestamp'], round(item['open'], 2), round(item['high'], 2), round(item['low'], 2), round(item['close'], 2)) for item in ohlc_list], dtype=ohlc_dtype)
                 array_data = np.array([[entry['open'], entry['high'], entry['low'], entry['close']] for entry in ohlc_list])
                 timestamps = np.array([entry['timestamp'] for entry in ohlc_list])
                 # if symbol in ['MARUTI24SEP11800PE', 'TRENT24SEP7200CE']:
@@ -366,9 +377,25 @@ class Start(object):
                 #     df.to_csv(filename, index=False)
                 interval = 'minute'
                 await self.process_symbol(symbol, instrument_code, interval, array_data, timestamps, basket_id, r)
+                df = pd.DataFrame(array_data, columns=['open', 'high', 'low', 'close'])
+                df['timestamp'] = pd.to_datetime(timestamps)  
+                df.set_index('timestamp', inplace=True)  
+
+                intervals = [2, 3, 5, 10, 15, 30]
+                for interval in intervals:
+                    if current_datetime.minute % interval == 0:
+                        print(f"criteria match {interval}")
+                        await self.handle_resampling(df, interval, symbol, instrument_code, basket_id, r)
+
+                if current_datetime.hour > 9 and current_datetime.minute == 16:
+                    interval = 60
+                    await self.handle_resampling(df, interval, symbol, instrument_code, basket_id, r)
+
+                last_processed = time.time()
             else:    
                 await asyncio.sleep(0.1)
-
+        #gc.collect()
+        return last_processed
  
 async def main():
     start = Start()
@@ -437,15 +464,14 @@ async def main():
         current_time = CurrentDateTime.time()
         current_minute = CurrentDateTime.minute
         #print(current_time)
-        
         if current_time > start.initiate_time and current_time < start.exit_time and current_time.second < 50:
             # Ensure the code runs only if the minute has changed
             if last_run_minute is None or current_minute != last_run_minute:
                 last_run_minute = current_minute
                 await start.start_pool()
                 start_time = time.time()
-                await start.process_current_minute()
-                end_time = time.time()
+                end_time = await start.process_current_minute()
+                #end_time = time.time()
                 total_time = end_time - start_time
                 print(f"{total_time=}")
                 await start.close_pool()
