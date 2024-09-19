@@ -562,13 +562,7 @@ async def download_ohlc_v2(df_all_stocks, interval):
             high_val = data_combined[i,1]
             low_val = data_combined[i,2]
             close_val = data_combined[i,3]
-            # ha_open_val = ha_open[i]
-            # ha_high_val = ha_high[i]
-            # ha_low_val = ha_low[i]
-            # ha_close_val = ha_close[i]
-            #batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val, ha_open_val, ha_high_val, ha_low_val, ha_close_val))
             batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val))
-            #print('batch_data', batch_data)
             if len(batch_data) >= BATCH_SIZE:
                 if table_name == 'one_min_ohlc':
                     insert_one_min_ohlc_proc_batch.delay(batch_data)
@@ -810,36 +804,12 @@ async def main():
     global dates_collections, zerodha_last_trans
 
     for interval, table_name in interval_to_table.items():
-        prvdata = await db.get_old_data_limit(table_name)
-        unique_symbols = prvdata['symbol'].unique()
-        unique_symbols_set = set(unique_symbols)
-        missing_symbols = all_symbols_set - unique_symbols_set
-        missing_symbols_list = list(missing_symbols)
-
+        prvdata = await db.get_lastdate_symbols_all(table_name)
         for s_value, group_df in prvdata.groupby('symbol'):
-            if s_value in all_symbols:
-                l = len(group_df)
-                if l < 400:
-                    missing_symbols_list.append(s_value)
-                else:
-                    group_df = group_df.tail(500)
-                    ohlc_np = group_df[['open', 'high', 'low', 'close']].values.astype(float)
-                    data_collections[interval][s_value] = ohlc_np
-                    group_df['datetime'] = pd.to_datetime(group_df['datetime'])
-                    datetime_list = group_df['datetime'].tolist()
-                    dates_collections[interval][s_value] = datetime_list
-        for symbol in missing_symbols_list:
-            group_df = await db.get_old_data_by_symbol(table_name, symbol)
-            if len(group_df) > 0:
-                ohlc_np = group_df[['open', 'high', 'low', 'close']].values.astype(float)
-                data_collections[interval][symbol] = ohlc_np
-                group_df['datetime'] = pd.to_datetime(group_df['datetime'])
-                datetime_list = group_df['datetime'].tolist()
-                dates_collections[interval][symbol] = datetime_list
-            else:
-                info = f'Data not found for {symbol} {table_name}'
-                await db.insert_trade_log(date_log= today, module='main', activity='cache creation', important_data=info, priority=4, strategy_trade_id = '', timestamp=datetime.now())
-                
+            group_df['datetime'] = pd.to_datetime(group_df['datetime'])
+            datetime_list = group_df['datetime'].tolist()
+            dates_collections[interval][s_value] = datetime_list
+        
     status, data, Error = await get_data_zerodha_recursive_list('60minute',  datetime.now() - timedelta(days=5), datetime.now(), 256265, 'NIFTY 50')
     if status == 1:
         zerodha_last_trans = data[-1]['date'].replace(tzinfo=None)
