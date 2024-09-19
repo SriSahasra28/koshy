@@ -112,13 +112,14 @@ class Start(object):
             print(info)
             await self.db.insert_trade_log(date_log=self.today, module='alert custom angle', activity='Alert Generated', important_data=info, priority=5, strategy_trade_id='', timestamp=datetime.now())
             await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name, datetime.now())
+            
             alert_data = {
                 "symbol": exchange_code,
-                "datetime": alert_timestamp, 
-                "scanid": scanID,
-                "timeframe": digit_name,
-                "bottime":  datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
-                "conditionID": conditionID  
+                "datetime": alert_timestamp,
+                "scanid": str(scanID),  
+                "timeframe": str(digit_name),  # Convert to string if needed
+                "bottime": datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
+                "conditionID": str(conditionID)  # Convert Int64 to string
             }
 
             sorted_set_key = "Alerts"
@@ -132,12 +133,13 @@ class Start(object):
             await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name, datetime.now())
             alert_data = {
                 "symbol": exchange_code,
-                "datetime": alert_timestamp, 
-                "scanid": scanID,
-                "timeframe": digit_name,
-                "bottime":  datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
-                "conditionID": conditionID  
+                "datetime": alert_timestamp,
+                "scanid": str(scanID),  # Convert Int64 to string
+                "timeframe": str(digit_name),  # Convert to string if needed
+                "bottime": datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
+                "conditionID": str(conditionID)  # Convert Int64 to string
             }
+            
             sorted_set_key = "Alerts"
             timestamp_score = datetime.now().timestamp() 
             await r.zadd(sorted_set_key, {json.dumps(alert_data): timestamp_score})
