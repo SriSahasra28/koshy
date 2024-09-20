@@ -107,6 +107,10 @@ class Start(object):
         return psarCandles - crossover_index if crossover_index > -1 else crossover_index
 
     async def process_alert(self, exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name, conditionID, r):
+        alert_timestamp_str = str(alert_timestamp)  
+        alert_timestamp_dt = datetime.strptime(alert_timestamp_str, "%Y-%m-%d %H:%M:%S")
+        print('alert_timestamp type:', type(alert_timestamp))
+        print('alert_timestamp_dt', alert_timestamp_dt)
         if lrcangletype == 'custom' and lrcanglestart < angle_degrees < lrcangleend:
             info = f"Alert {exchange_code} {alert_timestamp} K crossover: {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}"
             print(info)
@@ -115,7 +119,7 @@ class Start(object):
             
             alert_data = {
                 "symbol": exchange_code,
-                "datetime": alert_timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                "datetime": alert_timestamp_dt.strftime("%Y-%m-%d %H:%M:%S"),
                 "scanid": str(scanID),  # Convert Int64 to string
                 "timeframe": str(digit_name),  # Convert to string if needed
                 "bottime": datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
@@ -134,7 +138,7 @@ class Start(object):
             
             alert_data = {
                 "symbol": exchange_code,
-                "datetime": alert_timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                "datetime": alert_timestamp_dt.strftime("%Y-%m-%d %H:%M:%S"),
                 "scanid": str(scanID),  # Convert Int64 to string
                 "timeframe": str(digit_name),  # Convert to string if needed
                 "bottime": datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
