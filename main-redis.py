@@ -107,7 +107,8 @@ class Start(object):
         return psarCandles - crossover_index if crossover_index > -1 else crossover_index
 
     async def process_alert(self, exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name, conditionID, r):
-        alert_timestamp_str = str(alert_timestamp)  
+        alert_timestamp_str = str(alert_timestamp)
+        alert_timestamp_str = alert_timestamp_str[:26]  
         #alert_timestamp_dt = datetime.strptime(alert_timestamp_str, "%Y-%m-%d %H:%M:%S")
         alert_timestamp_dt = datetime.strptime(alert_timestamp_str, "%Y-%m-%dT%H:%M:%S.%f")
         print('alert_timestamp type:', type(alert_timestamp))
