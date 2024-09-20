@@ -810,7 +810,9 @@ async def main():
             datetime_list = group_df['datetime'].tolist()
             dates_collections[interval][s_value] = datetime_list
         
-    status, data, Error = await get_data_zerodha_recursive_list('60minute',  datetime.now() - timedelta(days=5), datetime.now(), 256265, 'NIFTY 50')
+    #status, data, Error = await get_data_zerodha_recursive_list('60minute',  datetime.now() - timedelta(days=5), datetime.now(), 256265, 'NIFTY 50')
+    # temporary
+    status, data, Error = await get_data_zerodha_recursive_list('minute',  datetime.now() - timedelta(minutes=5), datetime.now(), 256265, 'NIFTY 50')
     if status == 1:
         zerodha_last_trans = data[-1]['date'].replace(tzinfo=None)
     else:
