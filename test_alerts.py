@@ -266,14 +266,16 @@ class Start(object):
         self.df_HLFP = await self.db.get_hlfp()
         if cutoff == None:
             print('in cutoff None')
-            data_df = await self.db.get_old_data_by_symbol(table_name, exchange_code)
+            print(f"{table_name=} {exchange_code=}")
+            data_df = await self.db.get_data_by_symbol(table_name, exchange_code)
         else:
             print('in else')
             data_df = await self.db.get_old_data_by_symbol_prior(table_name, exchange_code, cutoff)
         data_df['datetime'] = pd.to_datetime(data_df['datetime'])
         data_df.reset_index(inplace=True, drop=True)
-        #data_df = data_df[data_df.datetime >= start_datetime]
+        print(f"{start_datetime=}")
         total_rows = len(data_df)
+        print(data_df)
         print(f"{total_rows=}")
         filt_data_df = data_df[data_df['datetime'] >= start_datetime]
         first_index = -1
@@ -433,15 +435,18 @@ async def main():
     start = Start()
     await start.start_pool()
     
-    start_datetime = pd.Timestamp('2024-09-10 11:15:00')
-    interval = '5minute'
+    start_datetime = pd.Timestamp('2024-09-23 09:15:00')
+    interval = 'minute'
     # start.priority_stocks_tpl = await start.db.get_priority_instruments_to_trade()
     # start.df_priority_stocks = pd.DataFrame(start.priority_stocks_tpl, columns=['instrument_token', 'symbol', 'basket_id'])
     # all_symbols = start.df_priority_stocks['symbol'].to_list()
     
-    symbol = 'FINNIFTY2491723450PE'
+    symbol = 'TCS24SEP4750CE'
+    df_basket = await start.db.get_basket_id_by_symbol(symbol)
+    basket_id = df_basket.basket_id.iloc[0]
     #await start.test_alert(symbol, interval, start_datetime)
-    await start.test_alert(symbol, interval, start_datetime, 19, '2024-09-11 09:20:00')
+    cutoff = '2024-09-23 09:20:00'
+    await start.test_alert(symbol, interval, start_datetime, basket_id)
     #for symbol in all_symbols:
     # for index, row in start.df_priority_stocks.iterrows():
     #     exchange_code = row['symbol']

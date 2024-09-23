@@ -299,7 +299,7 @@ async def download_ohlc_2min(df_all_stocks):
         # Get Last datetime for the symbol in from cache
         if exchange_code in dates_collections[interval]:
             last_datetime = cutoff_datetime = dates_collections[interval][exchange_code][-1].replace(second=0, microsecond=0)
-            print('cache datetime available', cutoff_datetime)  
+            print(interval, 'cache datetime available', cutoff_datetime)  
         else:
             info = f"No cache {exchange_code}{interval}"
             await db.insert_trade_log(date_log=today, module='download_ohlc_2min', activity='check cache', important_data=info, priority=2, strategy_trade_id = '', timestamp=datetime.now()) 
@@ -339,15 +339,17 @@ async def download_ohlc_2min(df_all_stocks):
         try:
             if log == True:
                 print('get_one_min_datetime', exchange_code)
-            dates_list_one_min = []
-            data_one_min = []
-            if exchange_code in dates_collections['minute']:
-                dates_list_one_min = dates_collections['minute'][exchange_code]
-                data_one_min = data_collections['minute'][exchange_code]
-            df = pd.DataFrame(data_one_min, columns=['open', 'high', 'low', 'close'], index=dates_list_one_min)
+            # dates_list_one_min = []
+            # data_one_min = []
+            # if exchange_code in dates_collections['minute']:
+            #     dates_list_one_min = dates_collections['minute'][exchange_code]
+            #     data_one_min = data_collections['minute'][exchange_code]
+            # df = pd.DataFrame(data_one_min, columns=['open', 'high', 'low', 'close'], index=dates_list_one_min)
 
            
-            #df = await db.get_one_min_datetime(exchange_code, startdate, last_working_day)
+            df = await db.get_one_min_datetime_after(exchange_code, cutoff_datetime)
+            df['datetime'] = pd.to_datetime(df['datetime'])
+            df.set_index('datetime', inplace=True, drop=True)
             result = 1
         except Exception as e:
             if log == True:
@@ -355,7 +357,7 @@ async def download_ohlc_2min(df_all_stocks):
 
         if len(df) == 0:
             if log == True:
-                await db.pre_process_logs(today_str, 'download_ohlc_2min', '1 min Data not available', df, 4)
+                await db.pre_process_logs(today_str, 'download_ohlc_2min', '1 min Data not available', exchange_code, 4)
             continue
         
         df = df.resample('2T').agg({
@@ -809,9 +811,11 @@ async def main():
             group_df['datetime'] = pd.to_datetime(group_df['datetime'])
             datetime_list = group_df['datetime'].tolist()
             dates_collections[interval][s_value] = datetime_list
-        
-    #status, data, Error = await get_data_zerodha_recursive_list('60minute',  datetime.now() - timedelta(days=5), datetime.now(), 256265, 'NIFTY 50')
-    # temporary
+
+
+    # result, error, count_symbol = await download_ohlc_2min(df_all_stocks)
+    # return
+
     status, data, Error = await get_data_zerodha_recursive_list('minute',  datetime.now() - timedelta(minutes=5), datetime.now(), 256265, 'NIFTY 50')
     if status == 1:
         zerodha_last_trans = data[-1]['date'].replace(tzinfo=None)
@@ -837,7 +841,7 @@ async def main():
         time_planned = row['time_planned']
         last_execution = row['last_execution']
         print(f"{action=}")
-
+    
         if action == 'update_symbols_to_monitor' and rollover_status == 0 and datetime.now().hour < 10:
             result, error, count_symbol = await update_symbols_to_download()
             current_date_string = datetime.now().strftime("%Y-%m-%d")

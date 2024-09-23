@@ -498,7 +498,18 @@ class dbconnection:
             df = df[::-1] # reverse as its desc order
             df = df.sort_values(by='datetime')
         return df
-
+    async def get_data_by_symbol(self, table_name, symbol):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(f"Select datetime, open, high, low, close FROM {table_name} where symbol = '{symbol}' ORDER BY datetime DESC LIMIT 1000;")
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        if len(df) > 0:
+            df = df[::-1] # reverse as its desc order
+            df = df.sort_values(by='datetime')
+        return df
+    
     async def get_old_data_priority(self, table_name):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
@@ -703,8 +714,17 @@ class dbconnection:
                 data = await cur.fetchall()
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
-        return df      
-          
+        return df   
+       
+    async def get_one_min_datetime_after(self, symbol, sdate):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT symbol, datetime, open, high, low, close FROM one_min_ohlc where symbol = '{symbol}' and datetime >= '{sdate}' order by `datetime`;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df 
     async def get_null_ohlc(self, symbol, tablename):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
@@ -1113,3 +1133,12 @@ class dbconnection:
                     (total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, bot_time, interval, total_time)
                 )
                 await conn.commit()
+    async def get_basket_id_by_symbol(self, symbol):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"SELECT b.basket_id FROM monitor_symbols m inner join basket_stocks b on m.stock_symbol = b.symbol where m.symbol = '{symbol}' LIMIT 1;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+                columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df
