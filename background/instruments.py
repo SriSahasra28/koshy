@@ -52,7 +52,7 @@ class instruments():
         scrip = scrip[scrip.expiry == expiry.strftime('%Y-%m-%d')]
         scrip['diff'] = abs(scrip.strike - LTP)
         scrip = scrip.sort_values(by=['diff'])
-        scrip = scrip[:10]
+        scrip = scrip[:5]
         return 1, scrip
     # def find_nearest_strike_price(LTP, strike_prices):
     #     nearest_strike_price = min(strike_prices, key=lambda x: abs(x - LTP))

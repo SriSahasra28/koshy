@@ -794,6 +794,7 @@ async def main():
     global df_dates, df_last_five_dates
     df= pd.DataFrame()
     global last_working_day, today, instr_tpl
+
     # check monthly turnover
     rollover_status = 0
     await db.run_query('truncate table pre_process_logs;')

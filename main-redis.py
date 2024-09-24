@@ -391,6 +391,10 @@ class Start(object):
                 await self.process_symbol(symbol, instrument_code, interval, array_data, timestamps, basket_id, r)
                 df = pd.DataFrame(array_data, columns=['open', 'high', 'low', 'close'])
                 df['timestamp'] = pd.to_datetime(timestamps)  
+                datetime_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                filename = f"data/{symbol}-{datetime_str}.csv"
+                df.to_csv(filename, index=False)
+
                 df.set_index('timestamp', inplace=True)  
 
                 intervals = [2, 3, 5, 10, 15, 30]
