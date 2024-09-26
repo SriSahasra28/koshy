@@ -375,20 +375,27 @@ class Start(object):
                 else:
                     print(f"Skipping No symbol found for {instrument_code} type: {type(instrument_code)}")
                     continue
-                # process minute
+
+                filtered_timeframes = self.df_basket_timeframes[self.df_basket_timeframes.basket_id == basket_id]
+                min1 = filtered_timeframes['1min'].any()
+                min2 = filtered_timeframes['2min'].any()
+                min3 = filtered_timeframes['3min'].any()
+                min5 = filtered_timeframes['5min'].any()
+                min10 = filtered_timeframes['10min'].any()
+                min15 = filtered_timeframes['15min'].any()
+                min30 = filtered_timeframes['30min'].any()
+                min60 = filtered_timeframes['60min'].any()
+                any_true = any([min1, min2, min3, min5, min10, min15, min30, min60])
+                if any_true == False:
+                    continue
                 ohlc_sorted_data = await r.zrange('ohlc_sorted:' + instrument_code, 0, -1)
                 ohlc_list = [json.loads(data) for data in ohlc_sorted_data]
                 array_data = np.array([[entry['open'], entry['high'], entry['low'], entry['close']] for entry in ohlc_list])
                 timestamps = np.array([entry['timestamp'] for entry in ohlc_list])
-                # if symbol in ['MARUTI24SEP11800PE', 'TRENT24SEP7200CE']:
-                #     df = pd.DataFrame(array_data, columns=['open', 'high', 'low', 'close'])
-                #     df['timestamp'] = timestamps
-                #     df = df[::-1]
-                #     datetime_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-                #     filename = f"data/{symbol}-{datetime_str}.csv"
-                #     df.to_csv(filename, index=False)
-                interval = 'minute'
-                await self.process_symbol(symbol, instrument_code, interval, array_data, timestamps, basket_id, r)
+                if min1:
+                    interval = 'minute'
+                    await self.process_symbol(symbol, instrument_code, interval, array_data, timestamps, basket_id, r)
+
                 df = pd.DataFrame(array_data, columns=['open', 'high', 'low', 'close'])
                 df['timestamp'] = pd.to_datetime(timestamps)  
                 datetime_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -397,11 +404,30 @@ class Start(object):
 
                 df.set_index('timestamp', inplace=True)  
 
-                intervals = [2, 3, 5, 10, 15, 30]
-                for interval in intervals:
-                    if current_datetime.minute % interval == 0:
-                        print(f"criteria match {interval}")
-                        await self.handle_resampling(df, interval, symbol, instrument_code, basket_id, r)
+                # intervals = [2, 3, 5, 10, 15, 30]
+                # for interval in intervals:
+                #     if current_datetime.minute % interval == 0:
+                #         print(f"criteria match {interval}")
+                #         await self.handle_resampling(df, interval, symbol, instrument_code, basket_id, r)
+
+                # Check to see if we need to subtract 1 minute before %
+                if min2 == True and current_datetime.minute % 2 == 0:
+                    await self.handle_resampling(df, 2, symbol, instrument_code, basket_id, r)
+
+                if min3 == True and current_datetime.minute % 3 == 0:
+                    await self.handle_resampling(df, 3, symbol, instrument_code, basket_id, r)
+
+                if min5 == True and current_datetime.minute % 5 == 0:
+                    await self.handle_resampling(df, 5, symbol, instrument_code, basket_id, r)
+
+                if min10 == True and current_datetime.minute % 10 == 0:
+                    await self.handle_resampling(df, 10, symbol, instrument_code, basket_id, r)
+
+                if min15 == True and current_datetime.minute % 15 == 0:
+                    await self.handle_resampling(df, 15, symbol, instrument_code, basket_id, r)
+
+                if min30 == True and current_datetime.minute % 30 == 0:
+                    await self.handle_resampling(df, 30, symbol, instrument_code, basket_id, r)
 
                 if current_datetime.hour > 9 and current_datetime.minute == 16:
                     interval = 60
@@ -420,6 +446,7 @@ async def main():
     log_batch = []
     start.priority_stocks_tpl = await start.db.get_priority_instruments_to_trade()
     start.df_priority_stocks = pd.DataFrame(start.priority_stocks_tpl, columns=['instrument_token', 'symbol', 'basket_id'])   
+    start.df_basket_timeframes = await start.db.get_timeframes()
 
     r = redis.from_url('redis://localhost', decode_responses=True)
     interval = 'minute'

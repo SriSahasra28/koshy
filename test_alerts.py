@@ -435,17 +435,17 @@ async def main():
     start = Start()
     await start.start_pool()
     
-    start_datetime = pd.Timestamp('2024-09-23 09:15:00')
-    interval = 'minute'
+    start_datetime = pd.Timestamp('2024-09-24 09:20:00')
+    interval = '5minute'
     # start.priority_stocks_tpl = await start.db.get_priority_instruments_to_trade()
     # start.df_priority_stocks = pd.DataFrame(start.priority_stocks_tpl, columns=['instrument_token', 'symbol', 'basket_id'])
     # all_symbols = start.df_priority_stocks['symbol'].to_list()
     
-    symbol = 'TCS24SEP4750CE'
+    symbol = 'RELIANCE24SEP2940CE'
     df_basket = await start.db.get_basket_id_by_symbol(symbol)
     basket_id = df_basket.basket_id.iloc[0]
     #await start.test_alert(symbol, interval, start_datetime)
-    cutoff = '2024-09-23 09:20:00'
+    cutoff = '2024-09-24 09:20:00'
     await start.test_alert(symbol, interval, start_datetime, basket_id)
     #for symbol in all_symbols:
     # for index, row in start.df_priority_stocks.iterrows():

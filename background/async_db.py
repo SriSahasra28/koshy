@@ -1142,3 +1142,12 @@ class dbconnection:
                 columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
         return df
+    async def get_timeframes(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                query = f"Select S.basket_id, 1min, 2min, 3min, 5min, 10min, 15min, 30min, 60min from Scans S left join ScanItems i on S.id = i.scanid where s.active = 1 and i.active = 1;"
+                await cur.execute(query)
+                data = await cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df
