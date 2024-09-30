@@ -8,6 +8,7 @@ from datetime import datetime
 from background.login import login
 from background.utils import utils
 from background.database import DBHelper
+import redis
 u = utils()
 
 zerodha_login_status = False
@@ -28,9 +29,11 @@ cur_date = datetime.today().date()
 DBHelper.update_access_token(token, cur_date)
 print('access token saved in database')
 
-
-l.download_instruments('NSE')
+#l.download_instruments('NSE')
 l.download_instruments('NFO')
 
 DBHelper.run_query('Call Resetdb()')
 print('Database Koshy Reset')
+
+redis_client = redis.Redis(host='localhost', port=6379, db=0)
+redis_client.flushall()
