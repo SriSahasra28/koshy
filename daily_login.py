@@ -37,3 +37,15 @@ print('Database Koshy Reset')
 
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 redis_client.flushall()
+
+file_path = 'C:\Users\Administrator\Desktop\React\koshy-trading-app-server/.env'
+
+text_to_save = f"""
+API_KEY=njkendkywo49rhna
+ACCESS_TOKEN= "{token}"
+"""
+
+with open(file_path, 'w') as file:
+    file.write(text_to_save)
+
+print("Token saved successfully to:", file_path)
