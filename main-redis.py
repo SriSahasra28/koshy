@@ -134,6 +134,13 @@ class Start(object):
             sorted_set_key = "Alerts"
             timestamp_score = datetime.now().timestamp() 
             await r.zadd(sorted_set_key, {json.dumps(alert_data): timestamp_score})
+            alert = {
+                    'type': 'info',
+                    'message': 'new alert',
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                }
+            alert_json = json.dumps(alert)
+            await r.publish('alerts', alert_json)
             return 1
         elif lrcangletype != 'custom':
             info = f'Alert {exchange_code} {alert_timestamp} K crossover {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}'
@@ -153,6 +160,13 @@ class Start(object):
             sorted_set_key = "Alerts"
             timestamp_score = datetime.now().timestamp() 
             await r.zadd(sorted_set_key, {json.dumps(alert_data): timestamp_score})
+            alert = {
+                    'type': 'info',
+                    'message': 'new alert',
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                }
+            alert_json = json.dumps(alert)
+            await r.publish('alerts', alert_json)
             return 1
         else:
             if self.loglevel >= 1:
@@ -471,7 +485,7 @@ async def main():
                         "low": float(row2.low),
                         "close": float(row2.close)  
                     }
-                    #print(final_ohlc)
+
                     sorted_set_key = f"ohlc_sorted:{instrument_token}"
                     timestamp = row2.datetime
                     timestamp_score = int(timestamp.timestamp())
