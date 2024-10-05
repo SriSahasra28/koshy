@@ -1117,12 +1117,12 @@ class dbconnection:
         df = pd.DataFrame(data, columns=columns)
         return df
 
-    async def insert_alert(self, symbol, datetime, scanid, timeframe, bot_time):        
+    async def insert_alert(self, symbol, datetime, scanid, timeframe, bot_time, conditionID):        
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
-                    "CALL insert_alert(%s, %s, %s, %s, %s)",
-                    (symbol, datetime, scanid, timeframe, bot_time)
+                    "CALL insert_alert(%s, %s, %s, %s, %s, %s)",
+                    (symbol, datetime, scanid, timeframe, bot_time, conditionID)
                 )
                 await conn.commit()
     async def insert_into_dashboard(self, total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, bot_time, interval, total_time):

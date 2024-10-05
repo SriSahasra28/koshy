@@ -120,7 +120,7 @@ class Start(object):
             info = f"Alert {exchange_code} {alert_timestamp} K crossover: {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}"
             print(info)
             await self.db.insert_trade_log(date_log=self.today, module='alert custom angle', activity='Alert Generated', important_data=info, priority=5, strategy_trade_id='', timestamp=datetime.now())
-            await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name, datetime.now())
+            await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name, datetime.now(), conditionID)
             
             alert_data = {
                 "symbol": exchange_code,
@@ -146,7 +146,7 @@ class Start(object):
             info = f'Alert {exchange_code} {alert_timestamp} K crossover {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}'
             print(info)
             await self.db.insert_trade_log(date_log=self.today, module='alert normal angle', activity='Alert Generated', important_data=info, priority=5, strategy_trade_id='', timestamp=datetime.now())
-            await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name, datetime.now())
+            await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name, datetime.now(), conditionID)
             
             alert_data = {
                 "symbol": exchange_code,
