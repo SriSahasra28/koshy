@@ -567,7 +567,8 @@ async def download_ohlc_v2(df_all_stocks, interval):
             batch_data.append((exchange_code, date_val, open_val, high_val, low_val, close_val))
             if len(batch_data) >= BATCH_SIZE:
                 if table_name == 'one_min_ohlc':
-                    insert_one_min_ohlc_proc_batch.delay(batch_data)
+                    #insert_one_min_ohlc_proc_batch.delay(batch_data)
+                    await db.Insert_one_min_ohlc_proc_batch(batch_data)
                 elif table_name == 'three_min_ohlc':
                     Insert_three_min_ohlc_proc_batch.delay(batch_data)
                 elif table_name == 'five_min_ohlc':
@@ -583,7 +584,8 @@ async def download_ohlc_v2(df_all_stocks, interval):
                 batch_data = []
         if batch_data:
             if table_name == 'one_min_ohlc':
-                insert_one_min_ohlc_proc_batch.delay(batch_data)
+                #insert_one_min_ohlc_proc_batch.delay(batch_data)
+                await db.Insert_one_min_ohlc_proc_batch(batch_data)
             elif table_name == 'three_min_ohlc':
                 Insert_three_min_ohlc_proc_batch.delay(batch_data)
             elif table_name == 'five_min_ohlc':
@@ -814,8 +816,9 @@ async def main():
             dates_collections[interval][s_value] = datetime_list
 
 
-    # result, error, count_symbol = await download_ohlc_2min(df_all_stocks)
-    # return
+    await download_ohlc_v2(df_all_stocks, 'minute')
+    
+    return
 
     status, data, Error = await get_data_zerodha_recursive_list('minute',  datetime.now() - timedelta(minutes=5), datetime.now(), 256265, 'NIFTY 50')
     if status == 1:

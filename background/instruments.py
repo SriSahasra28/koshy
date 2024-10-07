@@ -18,6 +18,38 @@ class instruments():
         scrip.expiry = pd.to_datetime(self.scrip.expiry)
         scrip['expiry'] = [x.date() for x in scrip.expiry]
         return sorted(scrip.expiry)[0]
+    def get_last_expiry_month(self, index_name):
+        scrip = self.scrip[self.scrip.name == index_name]
+        scrip = scrip[scrip.exchange == 'NFO']
+        scrip.expiry = pd.to_datetime(self.scrip.expiry)
+        scrip['expiry'] = [x.date() for x in scrip.expiry]
+        current_year = datetime.now().year
+        current_month = datetime.now().month
+        scrip_current_month = scrip[scrip['expiry'].apply(lambda x: x.year == current_year and x.month == current_month)]
+        last_expiry = None
+        if not scrip_current_month.empty:
+            last_expiry = max(scrip_current_month.expiry)
+        return last_expiry
+    def get_last_expiry_next_month(self, index_name):
+        scrip = self.scrip[self.scrip.name == index_name]
+        scrip = scrip[scrip.exchange == 'NFO']
+        scrip.expiry = pd.to_datetime(self.scrip.expiry)
+        scrip['expiry'] = [x.date() for x in scrip.expiry]
+        current_year = datetime.now().year
+        current_month = datetime.now().month
+        if current_month == 12:
+            next_month = 1
+            next_year = current_year + 1
+        else:
+            next_month = current_month + 1
+            next_year = current_year
+
+        scrip_next_month = scrip[scrip['expiry'].apply(lambda x: x.year == next_year and x.month == next_month)]
+
+        last_expiry_next_month = None
+        if not scrip_next_month.empty:
+            last_expiry_next_month = max(scrip_next_month.expiry)
+        return last_expiry_next_month
     def get_next_month_expiry(self, index_name): 
         print(f'{index_name=}')
         scrip = self.scrip[self.scrip.name == index_name]
@@ -39,9 +71,9 @@ class instruments():
         expiry = None
         if next_month == True:
             print(stock_name)
-            expiry = self.get_next_month_expiry(stock_name)
+            expiry = self.get_last_expiry_next_month(stock_name)
         else:
-            expiry = self.get_nearest_expiry(stock_name)
+            expiry = self.get_last_expiry_month(stock_name)
         print(f"{expiry=}")
         if expiry == None:
             return -1, pd.DataFrame()

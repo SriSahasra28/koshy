@@ -466,7 +466,8 @@ async def main():
     interval = 'minute'
     table_name = 'one_min_ohlc'
     current_time = datetime.now().time()
-    target_time = tm(9, 16)
+    # -------------------------- TEMPORARY Change ---------------
+    target_time = tm(15, 16)
     if current_time < target_time:
         print('download historical data')
         for row in start.df_priority_stocks.itertuples(index=False):
