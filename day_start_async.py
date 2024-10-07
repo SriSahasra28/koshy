@@ -147,7 +147,7 @@ async def get_data_zerodha_recursive_list(interval, from_date, edate, token, sym
     data_list = []  
     days = 95 
     if interval == 'minute':
-        days = 50
+        days = 10
     invalid_token = False
     error = ''
     
@@ -447,7 +447,8 @@ async def download_ohlc_v2(df_all_stocks, interval):
                 await db.pre_process_logs(today_str, 'cache', 'check date cache', info, 1) 
         else:
             info = f"no cache {exchange_code} {interval}"
-            last_datetime = datetime.today() - timedelta(days=90)
+            # changed tempo
+            last_datetime = datetime.today() - timedelta(days=10)
             last_datetime = last_datetime.replace(hour=9, minute=15, second=0, microsecond=0)
             cutoff_datetime = last_datetime
         
