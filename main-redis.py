@@ -466,8 +466,13 @@ async def main():
     interval = 'minute'
     table_name = 'one_min_ohlc'
     current_time = datetime.now().time()
-    # -------------------------- TEMPORARY Change ---------------
-    target_time = tm(15, 16)
+    for _, row in start.df_priority_stocks.iterrows():
+        await r.hset('symbol_to_token', row['symbol'], row['instrument_token'])
+        print(f"Added to symbol_to_token: {row['symbol']} -> {row['instrument_token']}")
+
+        await r.hset('token_to_symbol', row['instrument_token'], row['symbol'])
+
+    target_time = tm(21, 17)
     if current_time < target_time:
         print('download historical data')
         for row in start.df_priority_stocks.itertuples(index=False):
