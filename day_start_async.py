@@ -816,10 +816,8 @@ async def main():
             datetime_list = group_df['datetime'].tolist()
             dates_collections[interval][s_value] = datetime_list
 
-
-    await download_ohlc_v2(df_all_stocks, 'minute')
-    
-    return
+    # await download_ohlc_v2(df_all_stocks, 'minute')
+    # return
 
     status, data, Error = await get_data_zerodha_recursive_list('minute',  datetime.now() - timedelta(minutes=5), datetime.now(), 256265, 'NIFTY 50')
     if status == 1:

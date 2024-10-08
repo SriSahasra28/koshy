@@ -412,7 +412,7 @@ class Start(object):
 
                 df = pd.DataFrame(array_data, columns=['open', 'high', 'low', 'close'])
                 df['timestamp'] = pd.to_datetime(timestamps)  
-                datetime_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                datetime_str = datetime.now().strftime("%Y-%m-%d_%H-%M")
                 filename = f"data/{symbol}-{datetime_str}.csv"
                 df.to_csv(filename, index=False)
 
