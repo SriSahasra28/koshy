@@ -39,9 +39,9 @@ class Start(object):
         self.userid = 'koshy'
         self.sdate = datetime.now()
         #self.sdate_iso = self.sdate.isoformat()[:10] + 'T09:15:00.000Z'
-        self.log = True
+        self.log = False
         self.alertLog = False
-        self.loglevel = 2 # Low 0, Medium 1, High 2
+        self.loglevel = 0 # Low 0, Medium 1, High 2
         self.trade =True
         self.run_job = True
         self.initiate_time = tm(9, 15, 59)
@@ -413,8 +413,8 @@ class Start(object):
                 df = pd.DataFrame(array_data, columns=['open', 'high', 'low', 'close'])
                 df['timestamp'] = pd.to_datetime(timestamps)  
                 datetime_str = datetime.now().strftime("%Y-%m-%d_%H-%M")
-                filename = f"data/{symbol}-{datetime_str}.csv"
-                df.to_csv(filename, index=False)
+                # filename = f"data/{symbol}-{datetime_str}.csv"
+                # df.to_csv(filename, index=False)
 
                 df.set_index('timestamp', inplace=True)  
 
