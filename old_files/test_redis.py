@@ -5,7 +5,6 @@ import numpy as np
 
 r = redis.Redis(host='localhost', port=6379, decode_responses=True)
 
-
 def get_token_by_symbol(symbol):
     return r.hget('symbol_to_token', symbol)
 
