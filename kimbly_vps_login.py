@@ -13,7 +13,7 @@ df_cred = db.get_credentials()
 token = df_cred['access_code'].iloc[0]
 #print(f"{token=}")
 
-file_path = 'C:\Users\Administrator\Desktop\React\koshy-trading-app\koshy-trading-app-server/.env'
+file_path = 'C:\\Users\\Administrator\\Desktop\\React\\koshy-trading-app\\koshy-trading-app-server//.env'
 
 text_to_save = f"""
 API_KEY=njkendkywo49rhna
