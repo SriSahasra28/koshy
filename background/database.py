@@ -36,7 +36,7 @@ class DBHelper:
         df = pd.read_sql("SELECT * FROM credentials;", con=con)
         con.close()
         return df
-    
+
     def get_active_basket_symbols(self):
         con = sqlConnector.connect(host=self.server, user=self.user, passwd=self.passwd, database=self.database, port=self.port, auth_plugin='mysql_native_password')
         query = "SELECT distinct b.option_type, i.instrument_token, i.tradingsymbol FROM instruments i inner join basket_stocks b on i.tradingsymbol = b.symbol where exchange = 'NSE'"
