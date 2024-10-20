@@ -201,7 +201,7 @@ class dbconnection:
     async def get_pre_market_steps_ignore_date(self):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                query = "SELECT * FROM pre_market_steps order by priority;"
+                query = "SELECT * FROM pre_market_steps where enabled = 1 order by priority;"
                 await cur.execute(query)
                 data = await cur.fetchall()
         columns = [desc[0] for desc in cur.description]
