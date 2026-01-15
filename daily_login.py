@@ -18,10 +18,10 @@ zerodha_login_status, kite, kws, token = l.InitiateZerodha()
 
 message = f"koshy {zerodha_login_status=}"
 
-if zerodha_login_status == True:
-    u.send_email(f"Logged in successfully ", message)
-else:
-    u.send_email("Login Failure", message)
+# if zerodha_login_status == True:
+#     u.send_email(f"Logged in successfully ", message)
+# else:
+#     u.send_email("Login Failure", message)
 
 print(message)
 cur_date = datetime.today().date()
@@ -35,10 +35,10 @@ l.download_instruments('NFO')
 DBHelper.run_query('Call Resetdb()')
 print('Database Koshy Reset')
 
-redis_client = redis.Redis(host='localhost', port=6379, db=0)
-redis_client.flushall()
+# redis_client = redis.Redis(host='localhost', port=6379, db=0)
+# redis_client.flushall()
 
-file_path = 'C:\Users\Administrator\Desktop\React\koshy-trading-app-server/.env'
+file_path = "C:\\Users\\Administrator\\Desktop\\React\\koshy-trading-app-server\\.env"
 
 text_to_save = f"""
 API_KEY=njkendkywo49rhna

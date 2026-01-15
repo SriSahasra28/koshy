@@ -2,6 +2,8 @@ import os
 current_directory = os.path.dirname(os.path.abspath(__file__))
 os.chdir(current_directory)
 print(os.getcwd())
+
+import time
 import pandas as pd
 import asyncio
 import requests
@@ -142,6 +144,7 @@ async def get_data_zerodha_recursive(interval, from_date, edate, symbol):
 
 async def get_data_zerodha_recursive_list(interval, from_date, edate, token, symbol):
     print(f" ---------- in get_data_zerodha_recursive_list {symbol} {interval} {from_date=} {edate=}")
+    # input("Press Enter to exit...")
     to_date = edate
     # List to accumulate dictionaries
     data_list = []  
@@ -805,6 +808,11 @@ async def main():
     if today.day > 20:
         rollover_status = await rollover()
     df_all_stocks = await db.get_monitor_symbols_to_trade()
+    df_all_stocks['symbol'] = df_all_stocks['option_name']
+    del df_all_stocks['option_name']
+    for index, row in df_all_stocks.iterrows():
+        print(f"Index: {index}, Symbol: {row['symbol']}")
+    
     all_symbols = df_all_stocks['symbol'].to_list()
     all_symbols_set = set(all_symbols)
     global dates_collections, zerodha_last_trans
@@ -816,7 +824,7 @@ async def main():
             datetime_list = group_df['datetime'].tolist()
             dates_collections[interval][s_value] = datetime_list
 
-    # await download_ohlc_v2(df_all_stocks, 'minute')
+    await download_ohlc_v2(df_all_stocks, 'minute')
     # return
 
     status, data, Error = await get_data_zerodha_recursive_list('minute',  datetime.now() - timedelta(minutes=5), datetime.now(), 256265, 'NIFTY 50')
@@ -935,6 +943,9 @@ async def main():
 
     await db.close_pool()
     print('Done')
+    # Run option_filter.py
+    os.system('python filter_options.py')
+    # input("Press Enter to exit...")
 
 if __name__ == '__main__':
     loop = asyncio.get_event_loop()

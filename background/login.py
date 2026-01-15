@@ -30,7 +30,9 @@ class login():
         # last_login_date_str = keys[0].replace('date:','')
         # token = keys[1].replace('token:','')
         # last_login_date = dtm.strptime(last_login_date_str, "%Y-%m-%d").date()
+        print(f"HELLOOO")
         df_cred = self.helper.get_credentials()
+        print(df_cred, "aa")
         last_login_date = df_cred.login_date.iloc[0]
         token = df_cred.access_code.iloc[0]
         #print(f"In Login {token =} {last_login_date=}")
@@ -96,9 +98,9 @@ class login():
             exchange = self.kite.EXCHANGE_NFO
         lst = self.kite.instruments(exchange=exchange)
         df = pd.DataFrame(lst)
-        if exch == 'NFO': 
-            df = df[df.segment == 'NFO-OPT']
-            #df = df[(df.name == 'NIFTY') | (df.name == 'BANKNIFTY') | (df.name == 'FINNIFTY')]
+        # if exch == 'NFO': 
+        #     df = df[df.segment == 'NFO-OPT']
+        #     #df = df[(df.name == 'NIFTY') | (df.name == 'BANKNIFTY') | (df.name == 'FINNIFTY')]
 
         if len(df) == 0:
             print('No data returned')

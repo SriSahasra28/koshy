@@ -7,6 +7,27 @@ from background.zerodha import zeroda
 from datetime import datetime, date, timedelta, time as tm
 from background.instruments import instruments
 import pandas as pd
+
+import requests
+
+def send_telegram_message(stock, price, date, time, tf, sn):
+    """Format and send a message to a Telegram chat via the bot with only 'Alert' in bold."""
+    # Only 'Alert' is formatted as bold
+    message = f"*Alert*\nStock : {stock}\nPrice : Rs. {price}\nDate : {date}\nTime : {time}\nTF — {tf} min \nSN — {sn}"
+    
+    bot_token = '1936528227:AAFQwZV4z5AgSKEU9FW25Plnq-mTzXJY7Qw'
+    chat_id = '@koshi_alerts'
+    url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
+    payload = {'chat_id': chat_id, 'text': message}
+
+    try:
+        response = requests.post(url, data=payload)
+        response.raise_for_status()  # Raises HTTPError for bad requests
+        print("MESSAGE FROM MAIN REDIS BACKUP JAN 2025")
+        print("Message sent successfully")
+    except requests.exceptions.RequestException as e:
+        print(f"Error sending message: {e}")  
+
 #import pandas_ta as ta
 import numpy as np
 import warnings
@@ -88,14 +109,6 @@ class Start(object):
     async def close_pool(self):
         await self.db.close_pool()
 
-    async def get_hlfp_values(self, hlfpid):
-        if hlfpid == 1:
-            return self.df_HLFP['kLineThresholdOne'].iloc[0], self.df_HLFP['psarCandlesOne'].iloc[0]
-        elif hlfpid == 2:
-            return self.df_HLFP['kLineThresholdTwo'].iloc[0], self.df_HLFP['psarCandlesTwo'].iloc[0]
-        elif hlfpid == 3:
-            return self.df_HLFP['kLineThresholdThree'].iloc[0], self.df_HLFP['psarCandlesThree'].iloc[0]
-
     async def get_crossover_index(self, K, LineThreshold, psarCandles):
         last_n_elements = K[-psarCandles:]
         crossover_index = -1
@@ -106,7 +119,8 @@ class Start(object):
                 crossover_index = -1
         return psarCandles - crossover_index if crossover_index > -1 else crossover_index
 
-    async def process_alert(self, exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name, conditionID, r):
+    async def process_alert(self, exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name, conditionID, r,close_ha,scan_name):
+
         alert_timestamp_str = str(alert_timestamp)
         alert_timestamp_str = alert_timestamp_str[:26]  
         if 'T' in alert_timestamp_str:
@@ -116,7 +130,7 @@ class Start(object):
 
         print('alert_timestamp type:', type(alert_timestamp))
         print('alert_timestamp_dt', alert_timestamp_dt)
-        if lrcangletype == 'custom' and lrcanglestart < angle_degrees < lrcangleend:
+        if lrcangletype == 'custom' and lrcanglestart < angle_degrees < lrcangleend or 1 == 1 :
             info = f"Alert {exchange_code} {alert_timestamp} K crossover: {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}"
             print(info)
             await self.db.insert_trade_log(date_log=self.today, module='alert custom angle', activity='Alert Generated', important_data=info, priority=5, strategy_trade_id='', timestamp=datetime.now())
@@ -131,6 +145,8 @@ class Start(object):
                 "conditionID": str(conditionID)  # Convert Int64 to string
             }
             print(alert_data)
+            # telegrams ___
+            send_telegram_message(exchange_code,round(close_ha,2),alert_timestamp_dt.strftime("%d %b %Y"),alert_timestamp_dt.strftime("%H:%M"),digit_name,scan_name) 
             sorted_set_key = "Alerts"
             timestamp_score = datetime.now().timestamp() 
             await r.zadd(sorted_set_key, {json.dumps(alert_data): timestamp_score})
@@ -142,32 +158,7 @@ class Start(object):
             alert_json = json.dumps(alert)
             await r.publish('alerts', alert_json)
             return 1
-        elif lrcangletype != 'custom':
-            info = f'Alert {exchange_code} {alert_timestamp} K crossover {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}'
-            print(info)
-            await self.db.insert_trade_log(date_log=self.today, module='alert normal angle', activity='Alert Generated', important_data=info, priority=5, strategy_trade_id='', timestamp=datetime.now())
-            await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name, datetime.now(), conditionID)
-            
-            alert_data = {
-                "symbol": exchange_code,
-                "datetime": alert_timestamp_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                "scanid": str(scanID),  # Convert Int64 to string
-                "timeframe": str(digit_name),  # Convert to string if needed
-                "bottime": datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
-                "conditionID": str(conditionID)  # Convert Int64 to string
-            }
-            print(alert_data)
-            sorted_set_key = "Alerts"
-            timestamp_score = datetime.now().timestamp() 
-            await r.zadd(sorted_set_key, {json.dumps(alert_data): timestamp_score})
-            alert = {
-                    'type': 'info',
-                    'message': 'new alert',
-                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                }
-            alert_json = json.dumps(alert)
-            await r.publish('alerts', alert_json)
-            return 1
+
         else:
             if self.loglevel >= 1:
                 info = f"NOT {exchange_code} {alert_timestamp} K crossover: {crossover_index} psar: {psar_signal=} color: {candle_color=} high_ha: {high_ha} < LRL:{LRL_value}"
@@ -234,119 +225,154 @@ class Start(object):
                     info = f'len(condition_filtered) == 0 {conditionID=} {exchange_code} {interval}'
                     log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'conditionFilter', info, 2, datetime.now()))
                     continue
+                for cond in [1,2]  :
+                    if cond == 1 :
+                        condition = condition_filtered['condition1'].iloc[0]
+                        cand_type = condition_filtered['candle1'].iloc[0] 
+                        psarid = condition_filtered['psar1'].iloc[0] 
 
-                scanID = df_items.loc[(df_items[column_name] == 1) & (df_items['conditionID'] == conditionID), 'scanID'].iloc[0]     
-                lrcid = condition_filtered['lrcid'].iloc[0]
-                lrc_filtered = self.df_custom_indicators[self.df_custom_indicators.id == lrcid]
-                lrc_values = lrc_filtered['value'].iloc[0]
-                period_str, standard_deviation_str = lrc_values.split(',')
-                lrc_period = int(period_str.strip())
-                lrc_stdev = float(standard_deviation_str.strip())
-                
-                psarid = condition_filtered['psarid'].iloc[0] 
-                psar_filtered = self.df_custom_indicators[self.df_custom_indicators.id == psarid]
-                psar_values = psar_filtered['value'].iloc[0]
-                acceleration_str, max_acceleration_str = psar_values.split(',')
-                PSAR_acceleration = float(acceleration_str.strip())
-                PSAR_max_acceleration = float(max_acceleration_str) 
+                    elif cond == 2 :
+                        condition = condition_filtered['condition2'].iloc[0]
+                        cand_type = condition_filtered['candle2'].iloc[0] 
+                        psarid = condition_filtered['psar2'].iloc[0] 
 
-                stochid = condition_filtered['stochid'].iloc[0] 
-                stoch_filtered = self.df_custom_indicators[self.df_custom_indicators.id == stochid]
-                stoch_values = stoch_filtered['value'].iloc[0]
-                
-                period_str, k_avg_str, d_avg_str = stoch_values.split(',')
-                stoch_period = float(period_str)
-                k_avg = float(k_avg_str)
-                d_avg = float(d_avg_str)
-                
-                lrcangletype = condition_filtered['lrcangletype'].iloc[0] 
-                lrcanglestart = condition_filtered['lrcanglestart'].iloc[0] 
-                lrcangleend = condition_filtered['lrcangleend'].iloc[0] 
-                signaldirection = condition_filtered['signaldirection'].iloc[0] 
-                hlfpid = condition_filtered['hlfpid'].iloc[0]
+                    else :
+                        break
 
-                LineThreshold, psarCandles = await self.get_hlfp_values(hlfpid)
-                
-                low = data_combined[:,2]
-                high = data_combined[:,1]
-                close = data_combined[:,3]
-                
-                psar_data = psar(high, low, close, af0=float(PSAR_acceleration), af=float(PSAR_acceleration), max_af=float(PSAR_max_acceleration))
-                signals = get_psar_signals(close, psar_data)
-                #psar_signal = signals[-1]
-                K, D = calc_fastStochastics(low, high, close, stoch_period, k_avg, d_avg)
-                crossover_index = await self.get_crossover_index(K, LineThreshold, psarCandles)
-                if crossover_index == -1 or crossover_index == psarCandles:
-                    if self.loglevel >= 2:
-                        info = f'{crossover_index=} {psarCandles=} {exchange_code} {interval}'
-                        log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'no crossover', info, 2, datetime.now()))
-                else:
-                    candles_to_check = 3
-                    if crossover_index < candles_to_check:
-                        candles_to_check = crossover_index
+                    if condition != 1 :
+                        break
+
+                    # common params ____                                                     
+
+                    kline_start = condition_filtered['kline_start'].iloc[0]
+                    kline_end = condition_filtered['kline_end'].iloc[0]
+
+                    scanID = df_items.loc[(df_items[column_name] == 1) & (df_items['conditionID'] == conditionID), 'scanID'].iloc[0] 
+                    scan_name = 'Test'  
+                    scan_name = self.df_scan_names.loc[self.df_scan_names['id'] == scanID, 'name'].iloc[0]  
+
+                    # lrcid = condition_filtered['lrcid'].iloc[0]
+                    # lrc_filtered = self.df_custom_indicators[self.df_custom_indicators.id == lrcid]
+                    # lrc_values = lrc_filtered['value'].iloc[0]
+                    # period_str, standard_deviation_str = lrc_values.split(',')
+                    # lrc_period = int(period_str.strip())
+                    # lrc_stdev = float(standard_deviation_str.strip())                    
+                    
+                    # PSAR ___
+                    psar_filtered = self.df_custom_indicators[self.df_custom_indicators.id == psarid]
+                    psar_values = psar_filtered['value'].iloc[0]
+                    acceleration_str, max_acceleration_str = psar_values.split(',')
+                    PSAR_acceleration = float(acceleration_str.strip())
+                    PSAR_max_acceleration = float(max_acceleration_str) 
+
+                    # Stoch ____
+                    stochid = condition_filtered['stochid'].iloc[0] 
+                    stoch_filtered = self.df_custom_indicators[self.df_custom_indicators.id == stochid]
+                    stoch_values = stoch_filtered['value'].iloc[0]                    
+                    period_str, k_avg_str, d_avg_str = stoch_values.split(',')
+                    stoch_period = float(period_str)
+                    k_avg = float(k_avg_str)
+                    d_avg = float(d_avg_str)
+                    
+                    # lrcangletype = condition_filtered['lrcangletype'].iloc[0] 
+                    # lrcanglestart = condition_filtered['lrcanglestart'].iloc[0] 
+                    # lrcangleend = condition_filtered['lrcangleend'].iloc[0] 
+                    signaldirection = condition_filtered['signaldirection'].iloc[0] 
+                                
+                    
+                    low = data_combined[:,2]
+                    high = data_combined[:,1]
+                    close = data_combined[:,3]
+                    
+                    psar_data = psar(high, low, close, af0=float(PSAR_acceleration), af=float(PSAR_acceleration), max_af=float(PSAR_max_acceleration))
+                    signals = get_psar_signals(close, psar_data)
+                    #psar_signal = signals[-1]
+                    # K, D = calc_fastStochastics(low, high, close, stoch_period, k_avg, d_avg)
+                    K, D = calc_fastStochastics(low, high, close, lookback_period=stoch_period, d_period=d_avg, k_smoothing_period=k_avg)
+
+                    # Disbaled cross_overs ____
+                    # crossover_index = await self.get_crossover_index(K, LineThreshold, psarCandles)
+                    # if crossover_index == -1 or crossover_index == psarCandles:
+                    #     if self.loglevel >= 2:
+                    #         info = f'{crossover_index=} {psarCandles=} {exchange_code} {interval}'
+                    #         log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'no crossover', info, 2, datetime.now()))
+                    # else:
+                    #     candles_to_check = 3
+                    #     if crossover_index < candles_to_check:
+                    #         candles_to_check = crossover_index
+
+                    # Dummy params ___
+                    LRL_value = lrcangletype = lrcanglestart = lrcangleend = angle_degrees = crossover_index = 0
+
+                    candles_to_check = 1
                     for i in range(-candles_to_check, 0):
-                        psar_signal = signals[i] # psar_signal = signals[-1]
-                        if self.loglevel >= 2:
-                            info = f"index:{crossover_index} psig:{psar_signal} direction:{signaldirection} {exchange_code} {interval}"
-                            log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'crossover', info, 2, datetime.now()))
-
-                        if psar_signal == signaldirection: # signaldirection = 1 PSAR Signal is Long
-                            if self.loglevel >= 1:
-                                info = f"psar_signal: {psar_signal} == signaldirection: {signaldirection}"
-                                log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'signal', info, 2, datetime.now()))
+                        if kline_start < K[i] < kline_end and cond == 1 or cond == 2 :
+                            alert_timestamp = dates_combined[i-1]
+                            print(alert_timestamp)
+                            psar_signal = signals[i] # psar_signal = signals[-1]
+                            
+                            # if self.loglevel >= 2:
+                            #     info = f"index:{crossover_index} psig:{psar_signal} direction:{signaldirection} {exchange_code} {interval}"
+                            #     log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'crossover', info, 2, datetime.now()))
 
                             open_ha = ha_combined[i,0]
                             high_ha = ha_combined[i,1]
                             low_ha = ha_combined[i,2]
                             close_ha = ha_combined[i,3]
-                            candle_color = 'g'
-                            if close_ha < open_ha:
-                                candle_color = 'r'
-                            
-                            if i == -1:
-                                sliced_close = close
+                            print(f"close {close_ha} psar {psar_data[i]}")
+                            if psar_signal == signaldirection : # signaldirection = 1 PSAR Signal is Long
+                                if self.loglevel >= 1:
+                                    info = f"psar_signal: {psar_signal} == signaldirection: {signaldirection}"
+                                    log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'signal', info, 2, datetime.now()))
+
+                                candle_color = 'g'
+                                if close_ha < open_ha:
+                                    candle_color = 'r'
+                                
+                                if i == -1:
+                                    sliced_close = close
+                                else:
+                                    sliced_close = close[:i + 1]
+                                # LRL, UCL, LCL, angle_degrees = linear_regression_channel_numba_sliding(sliced_close, lrc_period, lrc_stdev)        
+                                # LRL_value = LRL[i]
+
+                                if self.loglevel >= 2:
+                                    info = f"{open_ha=} {high_ha=} {low_ha=} {close_ha=} {LRL_value=} {candle_color=} {cand_type=}"
+                                    log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'imp data', info, 2, datetime.now()))
+                                # and high_ha < LRL_value
+                                print(f"candle_color {candle_color} cand_type {cand_type}")
+                                if cand_type == 1:
+                                    if candle_color == 'g' :
+                                        result = await self.process_alert(exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name, conditionID, r,close_ha,scan_name)
+                                    else:
+                                        if self.loglevel >= 1:
+                                            info = f"NOT color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value}"
+                                            log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'no match', info, 2, datetime.now()))
+
+                                elif cand_type == 2:
+                                    no_lower_wick = low_ha == open_ha
+                                    upper_wick = high_ha > close_ha
+                                    if candle_color == 'g'  and no_lower_wick and upper_wick:
+                                        result = await self.process_alert(exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name, conditionID, r,close_ha,scan_name)
+                                    else:
+                                        if self.loglevel >= 1:
+                                            info = f"Not color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {upper_wick=}"
+                                            log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'no match', info, 2, datetime.now()))
+
+                                elif cand_type == 3:
+                                    no_upper_wick = high_ha == close_ha
+                                    no_lower_wick = low_ha == open_ha
+                                    if candle_color == 'g'  and no_lower_wick and no_upper_wick:
+                                        result = await self.process_alert(exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name, conditionID, r,close_ha,scan_name)
+                                    else:
+                                        if self.loglevel >= 1:
+                                            info = f"Not Wickless color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {no_upper_wick=}"
+                                            log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'no match', info, 2, datetime.now()))
+
                             else:
-                                sliced_close = close[:i + 1]
-                            LRL, UCL, LCL, angle_degrees = linear_regression_channel_numba(sliced_close, lrc_period, lrc_stdev)        
-                            LRL_value = LRL[-1]
-
-                            if self.loglevel >= 2:
-                                info = f"{open_ha=} {high_ha=} {low_ha=} {close_ha=} {LRL_value=} {candle_color=} {hlfpid=}"
-                                log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'imp data', info, 2, datetime.now()))
-
-                            alert_timestamp = dates_combined[i]
-                            if hlfpid == 1:
-                                if candle_color == 'g' and high_ha < LRL_value:
-                                    result = await self.process_alert(exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name, conditionID, r)
-                                else:
-                                    if self.loglevel >= 1:
-                                        info = f"NOT color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value}"
-                                        log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'no match', info, 2, datetime.now()))
-
-                            elif hlfpid == 2:
-                                no_lower_wick = low_ha == open_ha
-                                upper_wick = high_ha > close_ha
-                                if candle_color == 'g' and high_ha < LRL_value and no_lower_wick and upper_wick:
-                                    result = await self.process_alert(exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name, conditionID, r)
-                                else:
-                                    if self.loglevel >= 1:
-                                        info = f"Not color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {upper_wick=}"
-                                        log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'no match', info, 2, datetime.now()))
-
-                            elif hlfpid == 3:
-                                no_upper_wick = high_ha == close_ha
-                                no_lower_wick = low_ha == open_ha
-                                if candle_color == 'g' and high_ha < LRL_value and no_lower_wick and no_upper_wick:
-                                    result = await self.process_alert(exchange_code, scanID, alert_timestamp, LRL_value, lrcangletype, lrcanglestart, lrcangleend, angle_degrees, crossover_index, psar_signal, candle_color, high_ha, digit_name, conditionID, r)
-                                else:
-                                    if self.loglevel >= 1:
-                                        info = f"Not Wickless color: {candle_color} == 'g' and high_ha: {high_ha} < LRL_value: {LRL_value} and {no_lower_wick=} and {no_upper_wick=}"
-                                        log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'no match', info, 2, datetime.now()))
-
-                        else:
-                            if self.loglevel >= 1:
-                                info = f"NOT psarsignal: {psar_signal} == signaldirection: {signaldirection}"
-                                log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'no signal', info, 2, datetime.now()))
+                                if self.loglevel >= 1:
+                                    info = f"NOT psarsignal: {psar_signal} == signaldirection: {signaldirection}"
+                                    log_batch.append((self.today, 'd_ohlc_v2-Alerts', 'no signal', info, 2, datetime.now()))
 
             if log_batch:
                 #batch_insert_trade_logs.delay(log_batch)
@@ -358,7 +384,7 @@ class Start(object):
 
     async def handle_resampling(self, df, interval, symbol, instrument_code, basket_id, r):
         print('in handle_resampling')
-        resampled_df = df.resample(f'{interval}T').agg({
+        resampled_df = df.resample(f'{interval}T', offset='15min').agg({
             'open': 'first',
             'high': 'max',
             'low': 'min',
@@ -379,6 +405,7 @@ class Start(object):
         while datetime.now().second < 50:
             instrument_code = await r.rpop('ohlc_ready')
             if instrument_code:
+
                 instrument_code = instrument_code.decode() if isinstance(instrument_code, bytes) else instrument_code
                 filtered_df = self.df_priority_stocks[self.df_priority_stocks['instrument_token'] == int(instrument_code)]
                 symbol = None
@@ -387,10 +414,12 @@ class Start(object):
                     symbol = filtered_df['symbol'].values[0] 
                     basket_id = filtered_df['basket_id'].values[0]
                 else:
-                    print(f"Skipping No symbol found for {instrument_code} type: {type(instrument_code)}")
+                    # print(f"Skipping No symbol found for {instrument_code} type: {type(instrument_code)}")
                     continue
+                print(f'basket_id {basket_id}symbol {symbol} ' )
 
                 filtered_timeframes = self.df_basket_timeframes[self.df_basket_timeframes.basket_id == basket_id]
+                print(filtered_timeframes)
                 min1 = filtered_timeframes['1min'].any()
                 min2 = filtered_timeframes['2min'].any()
                 min3 = filtered_timeframes['3min'].any()
@@ -406,9 +435,6 @@ class Start(object):
                 ohlc_list = [json.loads(data) for data in ohlc_sorted_data]
                 array_data = np.array([[entry['open'], entry['high'], entry['low'], entry['close']] for entry in ohlc_list])
                 timestamps = np.array([entry['timestamp'] for entry in ohlc_list])
-                if min1:
-                    interval = 'minute'
-                    await self.process_symbol(symbol, instrument_code, interval, array_data, timestamps, basket_id, r)
 
                 df = pd.DataFrame(array_data, columns=['open', 'high', 'low', 'close'])
                 df['timestamp'] = pd.to_datetime(timestamps)  
@@ -423,29 +449,29 @@ class Start(object):
                 #     if current_datetime.minute % interval == 0:
                 #         print(f"criteria match {interval}")
                 #         await self.handle_resampling(df, interval, symbol, instrument_code, basket_id, r)
-
-                # Check to see if we need to subtract 1 minute before %
-                if min2 == True and current_datetime.minute % 2 == 0:
-                    await self.handle_resampling(df, 2, symbol, instrument_code, basket_id, r)
-
-                if min3 == True and current_datetime.minute % 3 == 0:
-                    await self.handle_resampling(df, 3, symbol, instrument_code, basket_id, r)
-
-                if min5 == True and current_datetime.minute % 5 == 0:
-                    await self.handle_resampling(df, 5, symbol, instrument_code, basket_id, r)
-
-                if min10 == True and current_datetime.minute % 10 == 0:
-                    await self.handle_resampling(df, 10, symbol, instrument_code, basket_id, r)
-
+                interval_arr = []
+                if min60 == True and current_datetime.minute == 15 :
+                    interval_arr.append(60)
+                if min30 == True and ( current_datetime.minute == 15 or current_datetime.minute == 45 ) :
+                    interval_arr.append(30)
                 if min15 == True and current_datetime.minute % 15 == 0:
-                    await self.handle_resampling(df, 15, symbol, instrument_code, basket_id, r)
+                    interval_arr.append(15)
+                if min10 == True and current_datetime.minute % 10 != 0 and current_datetime.minute % 5 == 0 :
+                    interval_arr.append(10)
+                if min5 == True and current_datetime.minute % 5 == 0 :
+                    interval_arr.append(5)
+                if min3 == True and current_datetime.minute % 3 == 0:
+                    interval_arr.append(3)
+                if min2 == True and current_datetime.minute % 2 == 0:
+                    interval_arr.append(2)
+                if min1:
+                    interval_arr.append('minute')
 
-                if min30 == True and current_datetime.minute % 30 == 0:
-                    await self.handle_resampling(df, 30, symbol, instrument_code, basket_id, r)
-
-                if current_datetime.hour > 9 and current_datetime.minute == 16:
-                    interval = 60
-                    await self.handle_resampling(df, interval, symbol, instrument_code, basket_id, r)
+                for interval in interval_arr :
+                    if interval == 'minute' :
+                        await self.process_symbol(symbol, instrument_code, interval, array_data, timestamps, basket_id, r)
+                    else :
+                        await self.handle_resampling(df, interval, symbol, instrument_code, basket_id, r)
 
                 last_processed = time.time()
             else:    
@@ -458,9 +484,17 @@ async def main():
     await start.start_pool()
     start_time = time.time()
     log_batch = []
+    start.df_scan_names = await start.db.get_scan_names()
+    print(start.df_scan_names)
     start.priority_stocks_tpl = await start.db.get_priority_instruments_to_trade()
+    basket_ids = set(start.df_scan_names['basket_id'])
+    # Filtering start.priority_stocks_tpl to include only those tuples where the third element is in basket_ids
+    start.priority_stocks_tpl = [t for t in start.priority_stocks_tpl if t[2] in basket_ids]
+    print(start.priority_stocks_tpl)
+
     start.df_priority_stocks = pd.DataFrame(start.priority_stocks_tpl, columns=['instrument_token', 'symbol', 'basket_id'])   
     start.df_basket_timeframes = await start.db.get_timeframes()
+    print(start.df_basket_timeframes)
 
     r = redis.from_url('redis://localhost', decode_responses=True)
     interval = 'minute'
@@ -480,6 +514,7 @@ async def main():
             symbol = row.symbol
             # Fetch old data from MySQL for the given symbol
             old_data_df = await start.db.get_old_data_by_symbol(table_name, symbol)
+            print(old_data_df)
             if len(old_data_df) > 0:
                 # Loop through the data and store it in Redis
                 for row2 in old_data_df.itertuples(index=False):
@@ -495,7 +530,7 @@ async def main():
                     sorted_set_key = f"ohlc_sorted:{instrument_token}"
                     timestamp = row2.datetime
                     timestamp_score = int(timestamp.timestamp())
-                    print(f"{sorted_set_key=}")
+                    
                     try:
                         # Add the OHLC data to Redis as a sorted set with timestamp as the score
                         await r.zadd(sorted_set_key, {json.dumps(final_ohlc): timestamp_score})
@@ -503,16 +538,19 @@ async def main():
                         info = f"Error inserting OHLC data into Redis for {symbol}: {e}"
                         print(info)
                         log_batch.append((start.today, 'main', 'cache redis', info, 2, datetime.now())) 
+                print(f"{sorted_set_key=}")
             else:
                 info = f'Data not found for {symbol} {table_name}'
                 print(info)
                 log_batch.append((start.today, 'main', 'cache creation', info, 2, datetime.now())) 
+            # break
     end_time = time.time()
     total_time = end_time - start_time
     print(f"total_time loading hist data to redis: {total_time}")
     await r.close()
 
     start.df_scan_items = await start.db.get_scan_items()
+    
     start.df_custom_indicators = await start.db.get_custom_indicators()
     start.df_conditions = await start.db.get_conditions()
     start.df_HLFP = await start.db.get_hlfp()

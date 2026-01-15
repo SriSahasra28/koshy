@@ -53,8 +53,12 @@ def batch_insert_trade_logs(batch_data):
         raise e
 
     finally:
-        cursor.close()
-        con.close()
+        if 'cursor' in locals() and cursor is not None:
+            cursor.close()
+        if 'con' in locals() and con is not None:
+            con.close()
+        # cursor.close()
+        # con.close()
 
 # High-priority task (default queue)
 @app.task

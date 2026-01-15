@@ -11,7 +11,44 @@ class dbconnection:
         setting = settings()
         self.set = setting.get_db()
     async def create_pool(self, loop):
-        self.pool = await aiomysql.create_pool(maxsize=20, host=self.set[2], port=self.set[3], user=self.set[0], password=self.set[1], db=self.set[4], loop=loop)
+        """Create database connection pool with improved settings"""
+        try:
+            self.pool = await aiomysql.create_pool(
+                maxsize=20, 
+                minsize=2,
+                host=self.set[2], 
+                port=self.set[3], 
+                user=self.set[0], 
+                password=self.set[1], 
+                db=self.set[4], 
+                loop=loop,
+                autocommit=False,
+                connect_timeout=30,
+                pool_recycle=3600,  # Recycle connections every hour
+                echo=False
+            )
+            print("✅ Database connection pool created successfully")
+            return True
+        except Exception as e:
+            print(f"❌ Failed to create database connection pool: {e}")
+            return False
+    
+    async def test_connection(self):
+        """Test database connection health"""
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute("SELECT 1")
+                    result = await cur.fetchone()
+                    if result and result[0] == 1:
+                        print("✅ Database connection test successful")
+                        return True
+                    else:
+                        print("❌ Database connection test failed")
+                        return False
+        except Exception as e:
+            print(f"❌ Database connection test error: {e}")
+            return False
 
     async def get_data(self, query):
         async with self.pool.acquire() as conn:
@@ -478,7 +515,7 @@ class dbconnection:
     async def get_old_data_by_symbol(self, table_name, symbol):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute(f"Select datetime, open, high, low, close FROM {table_name} where symbol = '{symbol}' and Date(datetime) < curdate() ORDER BY datetime DESC LIMIT 1000;")
+                await cur.execute(f"Select datetime, open, high, low, close FROM {table_name} where symbol = '{symbol}' and Date(datetime) < curdate() ORDER BY datetime DESC;")
                 data = await cur.fetchall()
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
@@ -490,7 +527,7 @@ class dbconnection:
     async def get_old_data_by_symbol_prior(self, table_name, symbol, cutoff_datetime):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute(f"Select datetime, open, high, low, close FROM {table_name} where symbol = '{symbol}' and datetime <= '{cutoff_datetime}' ORDER BY datetime DESC LIMIT 1000;")
+                await cur.execute(f"Select datetime, open, high, low, close FROM {table_name} where symbol = '{symbol}' and datetime <= '{cutoff_datetime}' ORDER BY datetime DESC;")
                 data = await cur.fetchall()
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
@@ -501,7 +538,7 @@ class dbconnection:
     async def get_data_by_symbol(self, table_name, symbol):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute(f"Select datetime, open, high, low, close FROM {table_name} where symbol = '{symbol}' ORDER BY datetime DESC LIMIT 1000;")
+                await cur.execute(f"Select datetime, open, high, low, close FROM {table_name} where symbol = '{symbol}' ORDER BY datetime DESC;")
                 data = await cur.fetchall()
         columns = [desc[0] for desc in cur.description]
         df = pd.DataFrame(data, columns=columns)
@@ -528,13 +565,38 @@ class dbconnection:
         df = pd.DataFrame(data, columns=columns)
         return df
 
-    async def insert_one_min_ohlc(self, symbol, datetime, open, high, low, close, volume):
+    async def check_one_min_ohlc_exists(self, symbol, datetime):
+        """Check if a record already exists for the given symbol and datetime"""
         try:
             async with self.pool.acquire() as conn:
                 async with conn.cursor() as cur:
                     await cur.execute(
-                    "INSERT IGNORE INTO one_min_ohlc(symbol, datetime, open, high, low, close, volume) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                    (symbol, datetime, open, high, low, close, volume)
+                        "SELECT COUNT(*) FROM one_min_ohlc WHERE symbol = %s AND datetime = %s",
+                        (symbol, datetime)
+                    )
+                    result = await cur.fetchone()
+                    return result[0] > 0
+        except Exception as e:
+            return False
+
+    async def insert_one_min_ohlc(self, symbol, datetime, open, high, low, close, volume=None):
+        try:
+            # Check if record already exists to avoid unnecessary database operations
+            if await self.check_one_min_ohlc_exists(symbol, datetime):
+                return  # Record already exists, skip insertion
+            
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    # Use INSERT ... ON DUPLICATE KEY UPDATE to handle duplicates gracefully
+                    await cur.execute(
+                    """INSERT INTO one_min_ohlc(symbol, datetime, open, high, low, close) 
+                       VALUES (%s, %s, %s, %s, %s, %s) AS new_values
+                       ON DUPLICATE KEY UPDATE 
+                       open = new_values.open, 
+                       high = new_values.high, 
+                       low = new_values.low, 
+                       close = new_values.close""",
+                    (symbol, datetime, open, high, low, close)
                     )
                     await conn.commit()
         except Exception as e:
@@ -547,15 +609,56 @@ class dbconnection:
             async with self.pool.acquire() as conn:
                 async with conn.cursor() as cur:
                     query = """
-                    INSERT IGNORE INTO one_min_ohlc
-                    (symbol, datetime, open, high, low, close, volume) 
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO one_min_ohlc
+                    (symbol, datetime, open, high, low, close) 
+                    VALUES (%s, %s, %s, %s, %s, %s) AS new_values
+                    ON DUPLICATE KEY UPDATE 
+                    open = new_values.open, 
+                    high = new_values.high, 
+                    low = new_values.low, 
+                    close = new_values.close
                     """
                     await cur.executemany(query, batch_data)
                     await conn.commit()
         except Exception as e:
             raise e
 
+    async def get_existing_ohlc_records(self, symbol, timestamps):
+        """Get existing records for a symbol and list of timestamps"""
+        try:
+            if not timestamps:
+                return []
+            
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    # Create placeholders for the IN clause
+                    placeholders = ','.join(['%s'] * len(timestamps))
+                    query = f"""
+                    SELECT datetime FROM one_min_ohlc 
+                    WHERE symbol = %s AND datetime IN ({placeholders})
+                    """
+                    params = [symbol] + list(timestamps)
+                    await cur.execute(query, params)
+                    results = await cur.fetchall()
+                    return [row[0] for row in results]
+        except Exception as e:
+            print(f"Error getting existing records: {e}")
+            return []
+
+    async def insert_one_min_batch_ohlc_simple(self, batch_data):
+        """Insert batch 1-minute OHLC data with INSERT IGNORE to handle race conditions"""
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    query = """
+                    INSERT IGNORE INTO one_min_ohlc
+                    (symbol, datetime, open, high, low, close) 
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """
+                    await cur.executemany(query, batch_data)
+                    await conn.commit()
+        except Exception as e:
+            raise e
 
     async def insert_three_min_ohlc(self, symbol, datetime, open, high, low, close, volume):
         try:
@@ -576,6 +679,96 @@ class dbconnection:
                 async with conn.cursor() as cur:
                     query = """
                     INSERT IGNORE INTO three_min_ohlc
+                    (symbol, datetime, open, high, low, close, volume) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """
+                    await cur.executemany(query, batch_data)
+                    await conn.commit()
+        except Exception as e:
+            raise e
+
+    # insert_batch_two_min_ohlc
+    async def insert_batch_two_min_ohlc(self, batch_data):
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    query = """
+                    INSERT IGNORE INTO two_min_ohlc
+                    (symbol, datetime, open, high, low, close, volume) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """
+                    await cur.executemany(query, batch_data)
+                    await conn.commit()
+        except Exception as e:
+            raise e
+
+    # insert_batch_five_min_ohlc
+    async def insert_batch_five_min_ohlc(self, batch_data):
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    query = """
+                    INSERT IGNORE INTO five_min_ohlc
+                    (symbol, datetime, open, high, low, close, volume) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """
+                    await cur.executemany(query, batch_data)
+                    await conn.commit()
+        except Exception as e:
+            raise e
+
+    # insert_batch_ten_min_ohlc
+    async def insert_batch_ten_min_ohlc(self, batch_data):
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    query = """
+                    INSERT IGNORE INTO ten_min_ohlc
+                    (symbol, datetime, open, high, low, close, volume) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """
+                    await cur.executemany(query, batch_data)
+                    await conn.commit()
+        except Exception as e:
+            raise e
+
+    # insert_batch_fifteen_min_ohlc
+    async def insert_batch_fifteen_min_ohlc(self, batch_data):
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    query = """
+                    INSERT IGNORE INTO fifteen_min_ohlc
+                    (symbol, datetime, open, high, low, close, volume) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """
+                    await cur.executemany(query, batch_data)
+                    await conn.commit()
+        except Exception as e:
+            raise e
+
+    # insert_batch_thirty_min_ohlc
+    async def insert_batch_thirty_min_ohlc(self, batch_data):
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    query = """
+                    INSERT IGNORE INTO thirty_min_ohlc
+                    (symbol, datetime, open, high, low, close, volume) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """
+                    await cur.executemany(query, batch_data)
+                    await conn.commit()
+        except Exception as e:
+            raise e
+
+    # insert_batch_hour_ohlc
+    async def insert_batch_hour_ohlc(self, batch_data):
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    query = """
+                    INSERT IGNORE INTO one_hour_ohlc
                     (symbol, datetime, open, high, low, close, volume) 
                     VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """
@@ -614,6 +807,18 @@ class dbconnection:
                 async with conn.cursor() as cur:
                     await cur.execute(
                     "INSERT IGNORE INTO ten_min_ohlc(symbol, datetime, open, high, low, close, volume) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (symbol, datetime, open, high, low, close, volume)
+                    )
+                    await conn.commit()
+        except Exception as e:
+            raise e
+
+    async def insert_two_min_ohlc(self, symbol, datetime, open, high, low, close, volume):
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                    "INSERT IGNORE INTO two_min_ohlc(symbol, datetime, open, high, low, close, volume) VALUES (%s, %s, %s, %s, %s, %s, %s)",
                     (symbol, datetime, open, high, low, close, volume)
                     )
                     await conn.commit()
@@ -875,7 +1080,8 @@ class dbconnection:
     async def get_monitor_symbols_to_trade(self):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                query = f"SELECT m.instrument_token, m.symbol FROM monitor_symbols m left join instruments i on m.instrument_token = i.instrument_token where m.active = 1 and i.expiry >= curdate();"
+                query = f"SELECT f.instrument_token, f.option_name FROM filter_options f LEFT JOIN instruments i ON f.instrument_token = i.instrument_token ;"
+
                 await cur.execute(query)
                 data = await cur.fetchall()
         columns = [desc[0] for desc in cur.description]
@@ -893,7 +1099,7 @@ class dbconnection:
     async def get_priority_instruments_to_trade(self):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                query = f"SELECT distinct m.instrument_token, m.symbol, b.basket_id FROM monitor_symbols m left join instruments i on m.instrument_token = i.instrument_token inner join basket_stocks b on m.stock_symbol = b.symbol where m.active = 1 and i.expiry >= curdate() and m.stock_symbol in (SELECT distinct symbol FROM basket_stocks);"
+                query = f"SELECT instrument_token, option_name, basket_id FROM filter_options;"
                 await cur.execute(query)
                 data = await cur.fetchall()
         return data
@@ -1080,7 +1286,16 @@ class dbconnection:
                 await cur.execute(query)
                 data = await cur.fetchall()
         return data
-    
+
+    async def get_scan_names(self):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("Select * from scans where active = 1;")
+                data = await cur.fetchall()
+                columns = [desc[0] for desc in cur.description]
+        df = pd.DataFrame(data, columns=columns)
+        return df   
+
     async def get_scan_items(self):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
@@ -1117,14 +1332,89 @@ class dbconnection:
         df = pd.DataFrame(data, columns=columns)
         return df
 
-    async def insert_alert(self, symbol, datetime, scanid, timeframe, bot_time, conditionID):        
-        async with self.pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    "CALL insert_alert(%s, %s, %s, %s, %s, %s)",
-                    (symbol, datetime, scanid, timeframe, bot_time, conditionID)
-                )
-                await conn.commit()
+    async def insert_alert(self, symbol, datetime, scanid, timeframe, bot_time, conditionID=None):        
+        """
+        Insert alert into database with improved error handling and connection management
+        
+        Args:
+            symbol: Stock symbol
+            datetime: Alert datetime
+            scanid: Scan ID
+            timeframe: Timeframe (e.g., '1min', '5min')
+            bot_time: Bot timestamp
+            conditionID: Condition ID (optional, not used by stored procedure)
+        """
+        max_retries = 3
+        retry_delay = 1
+        
+        for attempt in range(max_retries):
+            try:
+                # Validate input parameters
+                if not symbol or not datetime or not scanid or not timeframe or not bot_time:
+                    print(f"❌ Invalid parameters for alert insertion: symbol={symbol}, datetime={datetime}, scanid={scanid}, timeframe={timeframe}, bot_time={bot_time}")
+                    return False
+                
+                # Format datetime to string if it's a datetime object
+                if hasattr(datetime, 'strftime'):
+                    datetime_str = datetime.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    datetime_str = str(datetime)
+                
+                # Format bot_time to string if it's a datetime object
+                if hasattr(bot_time, 'strftime'):
+                    bot_time_str = bot_time.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    bot_time_str = str(bot_time)
+                
+                # Ensure scanid and timeframe are strings
+                scanid_str = str(scanid)
+                timeframe_str = str(timeframe)
+                symbol_str = str(symbol)
+                
+                async with self.pool.acquire() as conn:
+                    async with conn.cursor() as cur:
+                        # Use the correct stored procedure with 6 parameters (including conditionID)
+                        conditionID_str = str(conditionID) if conditionID is not None else "0"
+                        await cur.execute(
+                            "CALL insert_alert(%s, %s, %s, %s, %s, %s)",
+                            (symbol_str, datetime_str, scanid_str, timeframe_str, bot_time_str, conditionID_str)
+                        )
+                        await conn.commit()
+                        print(f"✅ Alert inserted successfully: {symbol} at {datetime_str}")
+                        return True
+                        
+            except aiomysql.Error as db_error:
+                error_msg = str(db_error).lower()
+                print(f"❌ Database error (attempt {attempt+1}/{max_retries}): {db_error}")
+                
+                if "deadlock" in error_msg or "lock wait timeout" in error_msg:
+                    print(f"🔄 Deadlock detected, retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                    continue
+                elif "connection" in error_msg or "timeout" in error_msg:
+                    print(f"🔄 Connection issue detected, retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2
+                    continue
+                else:
+                    print(f"❌ Fatal database error: {db_error}")
+                    return False
+                    
+            except Exception as e:
+                print(f"❌ Unexpected error (attempt {attempt+1}/{max_retries}): {e}")
+                print(f"   Symbol: {symbol}, DateTime: {datetime}, ScanID: {scanid}")
+                print(f"   Timeframe: {timeframe}, BotTime: {bot_time}")
+                
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2
+                    continue
+                else:
+                    return False
+        
+        print(f"❌ Failed to insert alert after {max_retries} attempts: {symbol}")
+        return False
     async def insert_into_dashboard(self, total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, bot_time, interval, total_time):
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:

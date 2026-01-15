@@ -2,6 +2,28 @@ from numba import jit
 import numpy as np
 
 @jit(nopython=True)
+def heikin_ashi_numpy(open_prices, high_prices, low_prices, close_prices):
+    open_prices = np.asarray(open_prices)
+    high_prices = np.asarray(high_prices)
+    low_prices = np.asarray(low_prices)
+    close_prices = np.asarray(close_prices)
+    ha_open = np.zeros_like(open_prices)
+    ha_high = np.zeros_like(high_prices)
+    ha_low = np.zeros_like(low_prices)
+    ha_close = np.zeros_like(close_prices)
+    ha_close[0] = (open_prices[0] + high_prices[0] + low_prices[0] + close_prices[0]) / 4
+    ha_open[0] = (open_prices[0] + close_prices[0]) / 2
+    ha_high[0] = high_prices[0]
+    ha_low[0] = low_prices[0]
+    for i in range(1, len(open_prices)):
+        ha_close[i] = (open_prices[i] + high_prices[i] + low_prices[i] + close_prices[i]) / 4
+        ha_open[i] = (ha_open[i-1] + ha_close[i-1]) / 2
+        ha_high[i] = max(high_prices[i], ha_open[i], ha_close[i])
+        ha_low[i] = min(low_prices[i], ha_open[i], ha_close[i])
+    return ha_open, ha_high, ha_low, ha_close
+
+
+@jit(nopython=True)
 def calc_fastStochastics(low, high, close, lookback_period, d_period, k_smoothing_period=1):
     n = len(close)
     lowest_low = np.full(n, np.nan)
@@ -35,40 +57,6 @@ def calc_fastStochastics(low, high, close, lookback_period, d_period, k_smoothin
         D[i] = np.mean(K[i - d_period + 1:i + 1])
     
     return K, D
-
-@jit(nopython=True)
-def linear_regression_channel_numba(close, period, std_multiplier):
-    close = close[-period:]
-    X = np.arange(len(close))
-    N = len(X)
-    sum_X = np.sum(X)
-    sum_Y = np.sum(close)
-    sum_XY = np.sum(X * close)
-    sum_X2 = np.sum(X * X)
-    
-    # Initialize slope and intercept with default values
-    slope = 0.0
-    intercept = np.mean(close)
-    
-    # Avoid division by zero in slope and intercept calculations
-    denominator_slope = (N * sum_X2 - sum_X * sum_X)
-    if denominator_slope != 0:
-        slope = (N * sum_XY - sum_X * sum_Y) / denominator_slope
-
-    denominator_intercept = N
-    if denominator_intercept != 0:
-        intercept = (sum_Y - slope * sum_X) / denominator_intercept
-    
-    LRL = intercept + slope * X
-    residuals = close - LRL
-    std_dev = np.std(residuals)
-    UCL = LRL + std_multiplier * std_dev
-    LCL = LRL - std_multiplier * std_dev
-
-    angle_radians = np.arctan(slope)
-    angle_degrees = np.degrees(angle_radians)
-
-    return LRL, UCL, LCL, angle_degrees
 
 @jit(nopython=True)
 def psar(high, low, close, af0=0.02, af=0.02, max_af=0.2):
@@ -113,29 +101,8 @@ def get_psar_signals(close, psar_values):
             signals[i] = 1  # Long signal
         elif close[i] < psar_values[i] and close[i-1] >= psar_values[i-1]:
             signals[i] = -1  # Short signal
-
+    
     return signals
-
-@jit(nopython=True)
-def heikin_ashi_numpy(open_prices, high_prices, low_prices, close_prices):
-    open_prices = np.asarray(open_prices)
-    high_prices = np.asarray(high_prices)
-    low_prices = np.asarray(low_prices)
-    close_prices = np.asarray(close_prices)
-    ha_open = np.zeros_like(open_prices)
-    ha_high = np.zeros_like(high_prices)
-    ha_low = np.zeros_like(low_prices)
-    ha_close = np.zeros_like(close_prices)
-    ha_close[0] = (open_prices[0] + high_prices[0] + low_prices[0] + close_prices[0]) / 4
-    ha_open[0] = (open_prices[0] + close_prices[0]) / 2
-    ha_high[0] = high_prices[0]
-    ha_low[0] = low_prices[0]
-    for i in range(1, len(open_prices)):
-        ha_close[i] = (open_prices[i] + high_prices[i] + low_prices[i] + close_prices[i]) / 4
-        ha_open[i] = (ha_open[i-1] + ha_close[i-1]) / 2
-        ha_high[i] = max(high_prices[i], ha_open[i], ha_close[i])
-        ha_low[i] = min(low_prices[i], ha_open[i], ha_close[i])
-    return ha_open, ha_high, ha_low, ha_close
 
 @jit(nopython=True)
 def linear_regression_channel_numba_sliding(close, period, std_multiplier):
@@ -183,3 +150,7 @@ def linear_regression_channel_numba_sliding(close, period, std_multiplier):
         angles[i] = np.degrees(np.arctan(slope))
 
     return LRL, UCL, LCL, angles
+
+
+
+

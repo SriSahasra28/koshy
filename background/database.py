@@ -32,10 +32,37 @@ class DBHelper:
         con.close()
         return df
     def get_credentials(self):
-        con = sqlConnector.connect(host=self.server, user=self.user, passwd=self.passwd, database=self.database, port=self.port, auth_plugin='mysql_native_password')
-        df = pd.read_sql("SELECT * FROM credentials;", con=con)
-        con.close()
-        return df
+        try:
+            con = sqlConnector.connect(host=self.server, user=self.user, passwd=self.passwd, database=self.database, port=self.port, auth_plugin='mysql_native_password')
+            df = pd.read_sql("SELECT * FROM credentials;", con=con)
+            con.close()
+            return df
+        except Exception as e:
+            print(f"Database connection failed: {e}")
+            print("Using fallback credentials from security.txt...")
+            return self._get_fallback_credentials()
+    
+    def _get_fallback_credentials(self):
+        """Fallback method to get credentials from security.txt when database is unavailable"""
+        try:
+            import ast
+            config_file_path = 'background/security.txt'
+            with open(config_file_path, 'r') as file:
+                content = file.read()
+            config = ast.literal_eval(content)
+            
+            # Create a DataFrame with the credentials from security.txt
+            # Assuming we need login_date and access_code columns
+            # You may need to adjust this based on your actual requirements
+            credentials_data = {
+                'login_date': [pd.Timestamp.now().date()],  # Use current date as fallback
+                'access_code': [config.get('api_pwd', '')]  # Use api_pwd as access_code
+            }
+            return pd.DataFrame(credentials_data)
+        except Exception as e:
+            print(f"Error reading fallback credentials: {e}")
+            # Return empty DataFrame with expected columns
+            return pd.DataFrame(columns=['login_date', 'access_code'])
 
     def get_active_basket_symbols(self):
         con = sqlConnector.connect(host=self.server, user=self.user, passwd=self.passwd, database=self.database, port=self.port, auth_plugin='mysql_native_password')
@@ -305,3 +332,29 @@ class DBHelper:
         df = pd.read_sql(f"SELECT datetime, HA_open, HA_high, HA_close, HA_low, bol_up, bol_down FROM option_data_one_min order by datetime;", con=con)
         con.close()
         return df
+    
+    def insert_one_min_batch_ohlc(self, batch_data):
+        """Insert batch 1-minute OHLC data with duplicate handling"""
+        try:
+            set = settings.get_db()
+            con = sqlConnector.connect(host=set[2], user=set[0], passwd=set[1], database=set[4], port=set[3], auth_plugin='mysql_native_password')
+            cur = con.cursor()
+            
+            query = """
+            INSERT INTO one_min_ohlc
+            (symbol, datetime, open, high, low, close) 
+            VALUES (%s, %s, %s, %s, %s, %s) AS new_values
+            ON DUPLICATE KEY UPDATE 
+            open = new_values.open, 
+            high = new_values.high, 
+            low = new_values.low, 
+            close = new_values.close
+            """
+            
+            cur.executemany(query, batch_data)
+            con.commit()
+            con.close()
+            
+        except Exception as e:
+            print(f"Error inserting batch OHLC data: {e}")
+            raise e
