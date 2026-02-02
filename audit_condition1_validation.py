@@ -363,14 +363,20 @@ async def calculate_indicators(ohlc_df, psar_config, stoch_config):
         traceback.print_exc()
         return None, None, None, None, error_details
 
-def get_psar_signal(psar_value, close_price):
-    """Determine PSAR signal: 1 for bullish (PSAR below price), -1 for bearish (PSAR above price)"""
-    if psar_value is None or close_price is None:
-        return None
-    if psar_value < close_price:
-        return 1  # Bullish
-    else:
-        return -1  # Bearish
+def get_psar_signals(close, psar_values):
+    """
+    Calculate PSAR signals based on crossovers (matches redis_alert_engine.py logic)
+    Signal = 1 when price crosses ABOVE PSAR (bullish crossover)
+    Signal = -1 when price crosses BELOW PSAR (bearish crossover)  
+    Signal = 0 when no crossover
+    """
+    signals = np.zeros(len(close))
+    for i in range(1, len(close)):
+        if close[i] > psar_values[i] and close[i-1] <= psar_values[i-1]:
+            signals[i] = 1  # Long signal (crossover UP)
+        elif close[i] < psar_values[i] and close[i-1] >= psar_values[i-1]:
+            signals[i] = -1  # Short signal (crossover DOWN)
+    return signals
 
 def check_candle_type(candle_type, ha_open, ha_high, ha_low, ha_close):
     """Check if candle matches the required type"""
@@ -484,6 +490,11 @@ def validate_alert(alert_row, condition_details, redis_client):
     ha_low_val = ha_low[candle_idx]
     ha_close_val = ha_close[candle_idx]
     
+    # ✅ FIX: Calculate PSAR signals using crossover logic (matches engine)
+    close_prices = ohlc_df['close'].values.astype(float)
+    psar_signals = get_psar_signals(close_prices, psar_data)
+    psar_signal = int(psar_signals[candle_idx]) if not np.isnan(psar_signals[candle_idx]) else 0
+    
     # Validate Condition 1
     validation_results = []
     
@@ -493,11 +504,15 @@ def validate_alert(alert_row, condition_details, redis_client):
     elif not (kline_start < stoch_k < kline_end):
         validation_results.append(f"K value {stoch_k:.2f} not in range [{kline_start}, {kline_end}]")
     
-    # Check 2: PSAR signal direction
-    close_price = matching_candle['close']
-    psar_signal = get_psar_signal(psar_value, close_price)
-    if psar_signal != signaldirection:
-        validation_results.append(f"PSAR signal {psar_signal} != required {signaldirection}")
+    # Check 2: PSAR signal direction (using crossover-based signal)
+    # ✅ FIX: Check signal = 0 when direction requires crossover (defensive check)
+    psar_signal_int = int(psar_signal) if not np.isnan(psar_signal) else 0
+    signaldirection_int = int(signaldirection)
+    
+    if psar_signal_int == 0 and signaldirection_int != 0:
+        validation_results.append(f"PSAR signal is 0 (no crossover) but required direction is {signaldirection_int}")
+    elif psar_signal_int != signaldirection_int:
+        validation_results.append(f"PSAR signal {psar_signal_int} != required {signaldirection_int}")
     
     # Check 3: Candle type
     candle_valid = check_candle_type(candle_type, ha_open_val, ha_high_val, ha_low_val, ha_close_val)

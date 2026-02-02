@@ -4,7 +4,7 @@ import asyncio
 import sys
 import numpy as np
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, time as dt_time
 import pytz
 import json
 import os 
@@ -14,6 +14,7 @@ from telegram.constants import ParseMode
 import talib
 from redis.asyncio.lock import Lock
 from loguru import logger
+from background.indicators import linear_regression_channel_numba_sliding
 
 IST = pytz.timezone("Asia/Kolkata")
 UTC = pytz.timezone("UTC")
@@ -59,7 +60,7 @@ def _setup_logging():
 _setup_logging()
 
 async def send_telegram_message(stock, price, date, time, tf, sn):
-    """Format and send a message to a Telegram chat via the bot with only 'Alert' in bold."""
+    """Format and send a message to Telegram chats (channel + personal) via the bot with only 'Alert' in bold."""
     # Only 'Alert' is formatted as bold
     # Check if it's a crypto symbol (contains USDT)
     if 'USDT' in stock:
@@ -68,12 +69,8 @@ async def send_telegram_message(stock, price, date, time, tf, sn):
         message = f"*Alert*\nStock : {stock}\nPrice : Rs. {price}\nDate : {date}\nTime : {time}\nTF — {tf} min \nSN — {sn}"
     
     bot_token = '8213206702:AAGRu6r0ag2zjbvT8TyoBGBq0gx_I05uH6o'
-    # Try different chat_id formats:
-    # Option 1: Channel username (if it's a public channel)
-    # chat_id = '@koshy_alerts_bot'
-    # Option 2: Your personal chat ID (get it from @userinfobot)
-    chat_id = '@koshy_alerts'  # Replace with actual chat ID
-    # Option 3: Group chat ID (negative number, get from @userinfobot in the group)
+    # Send to both channel and personal chat
+    chat_ids = ['@koshy_alerts', '1367653901']  # Channel and personal chat ID
     
     global _TELEGRAM_BOT, _TELEGRAM_BOT_LOCK
     # CRITICAL: Use lock to prevent race condition when multiple alerts trigger in parallel
@@ -85,16 +82,20 @@ async def send_telegram_message(stock, price, date, time, tf, sn):
                 logger.error(f"Error initializing Telegram bot: {e}")
                 return False
     
-    try:
-        await _TELEGRAM_BOT.send_message(
-            chat_id=chat_id,
-            text=message,
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return True
-    except Exception as e:
-        logger.error(f"Error sending Telegram message: {e}")
-        return False
+    # Send to all chat IDs, return True if at least one succeeds
+    success_count = 0
+    for chat_id in chat_ids:
+        try:
+            await _TELEGRAM_BOT.send_message(
+                chat_id=chat_id,
+                text=message,
+                parse_mode=ParseMode.MARKDOWN
+            )
+            success_count += 1
+        except Exception as e:
+            logger.error(f"Error sending Telegram message to {chat_id}: {e}")
+    
+    return success_count > 0
 
     
 async def save_ticker_candle_to_database(ticker, row_data, columns, db, table_name="one_min_ohlc"):
@@ -407,6 +408,16 @@ async def calc_fastStochastics_async(low, high, close, lookback_period=14, d_per
     """
     return await asyncio.to_thread(calc_fastStochastics, low, high, close, lookback_period, d_period, k_smoothing_period)
 
+async def calc_lrc_async(close, period, std_multiplier):
+    """
+    Calculate Linear Regression Channel asynchronously (offloads CPU work to thread pool).
+    This prevents blocking the event loop during LRC calculations.
+    
+    Returns:
+        Tuple of (LRL values, UCL values, LCL values, angles) as numpy arrays
+    """
+    return await asyncio.to_thread(linear_regression_channel_numba_sliding, close, period, std_multiplier)
+
 # --- Main Alert Engine ---
 
 class RedisAlertEngine:
@@ -559,12 +570,22 @@ class RedisAlertEngine:
                 alert_timestamp_dt = datetime.now()
             
             # Determine if alert should be generated
+            # ✅ FIX: Handle NULL lrcangletype properly (when fields are nulled out)
             should_generate_alert = False
             
-            if lrcangletype == 'custom':
-                if lrcanglestart < angle_degrees < lrcangleend:
-                    should_generate_alert = True
-            elif lrcangletype != 'custom':
+            # If lrcangletype is None/NULL/empty, treat as non-custom (generate alert)
+            if not lrcangletype or pd.isna(lrcangletype) or str(lrcangletype).strip() == '':
+                should_generate_alert = True
+            elif lrcangletype == 'custom':
+                # For custom, check if angle is within range (but handle NULL values)
+                if lrcanglestart is not None and lrcangleend is not None and not pd.isna(lrcanglestart) and not pd.isna(lrcangleend):
+                    if lrcanglestart < angle_degrees < lrcangleend:
+                        should_generate_alert = True
+                else:
+                    # If custom angle but start/end are NULL, log warning and don't generate
+                    logger.warning(f"Custom angle type set but lrcanglestart/lrcangleend are NULL for {exchange_code}")
+            else:
+                # lrcangletype is set but not 'custom', generate alert
                 should_generate_alert = True
             
             if should_generate_alert:
@@ -613,72 +634,99 @@ class RedisAlertEngine:
                 else:
                     logger.warning(f"WARNING: No database connection available for {exchange_code}")
                     db_error_message = "No database connection available"
+                    db_success = False  # Set to False if no DB connection
                 
-                # Prepare alert data for Redis with proper type conversion
-                alert_data = {
-                    "symbol": str(exchange_code),
-                    "datetime": alert_timestamp_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                    "scanid": str(int(scanID)) if pd.notna(scanID) else "0",
-                    "timeframe": str(digit_name),
-                    "bottime": datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
-                    "conditionID": str(int(conditionID)) if pd.notna(conditionID) else "0"
-                }
-                
-                # Send Telegram notification
-                try:
-                    await send_telegram_message(
-                        stock=exchange_code,
-                        price=round(close_ha, 2),
-                        date=alert_timestamp_dt.strftime("%d %b %Y"),
-                        time=alert_timestamp_dt.strftime("%H:%M"),
-                        tf=digit_name,
-                        sn=scan_name
-                    )
-                        
-                except Exception as e:
-                    logger.error(f"Error sending Telegram message for {exchange_code}: {e}")
-                # Add to Redis sorted set with error handling
-                try:
-                    sorted_set_key = "Alerts"
-                    timestamp_score = datetime.now().timestamp()
-                    # Check if score already exists using zcount (efficient check)
-                    existing_count = await redis_client.zcount(sorted_set_key, timestamp_score, timestamp_score)
-                    # Only add if score doesn't exist
-                    if existing_count == 0:
-                        await redis_client.zadd(sorted_set_key, {json.dumps(alert_data): timestamp_score})
-                    # Set TTL on Alerts key (30 days - matches alerts_simple)
-                    await set_ttl_safe(redis_client, sorted_set_key)
+                # ✅ FIX 4: Only send Telegram and Redis if DB save succeeded
+                if db_success:
+                    # Prepare alert data for Redis with proper type conversion
+                    alert_data = {
+                        "symbol": str(exchange_code),
+                        "datetime": alert_timestamp_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                        "scanid": str(int(scanID)) if pd.notna(scanID) else "0",
+                        "timeframe": str(digit_name),
+                        "bottime": datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
+                        "conditionID": str(int(conditionID)) if pd.notna(conditionID) else "0"
+                    }
                     
-                    # Store simple alert in Redis sorted set: symbol, interval, candle timestamp
+                    # ✅ FIX 1: Send Telegram notification with retry
+                    max_telegram_retries = 3
+                    telegram_sent = False
+                    for attempt in range(max_telegram_retries):
+                        try:
+                            success = await send_telegram_message(
+                                stock=exchange_code,
+                                price=round(close_ha, 2),
+                                date=alert_timestamp_dt.strftime("%d %b %Y"),
+                                time=alert_timestamp_dt.strftime("%H:%M"),
+                                tf=digit_name,
+                                sn=scan_name
+                            )
+                            if success:
+                                telegram_sent = True
+                                break
+                        except Exception as e:
+                            logger.warning(f"Telegram attempt {attempt+1}/{max_telegram_retries} failed for {exchange_code}: {e}")
+                            if attempt < max_telegram_retries - 1:
+                                await asyncio.sleep(0.5 * (attempt + 1))
+                    if not telegram_sent:
+                        logger.error(f"CRITICAL: Failed to send Telegram after {max_telegram_retries} attempts for {exchange_code}")
+                    
+                    # Add to Redis sorted set with error handling
                     try:
-                        simple_alert_key = "alerts_simple"
-                        # Use candle timestamp as score for chronological ordering
-                        candle_timestamp_score = int(alert_timestamp_dt.timestamp())
-                        # Value: symbol,interval,candle_timestamp
-                        simple_alert_value = f"{exchange_code},{digit_name},{alert_timestamp_dt.strftime('%Y-%m-%d %H:%M:%S')}"
+                        sorted_set_key = "Alerts"
+                        timestamp_score = datetime.now().timestamp()
                         # Check if score already exists using zcount (efficient check)
-                        existing_count = await redis_client.zcount(simple_alert_key, candle_timestamp_score, candle_timestamp_score)
+                        existing_count = await redis_client.zcount(sorted_set_key, timestamp_score, timestamp_score)
                         # Only add if score doesn't exist
                         if existing_count == 0:
-                            await redis_client.zadd(simple_alert_key, {simple_alert_value: candle_timestamp_score})
-                        # Set TTL to keep Redis clean (30 days)
-                        await set_ttl_safe(redis_client, simple_alert_key)
-                    except Exception as simple_err:
-                        logger.error(f"Error storing simple alert to Redis: {simple_err}")
-                    
-                    # Publish alert notification
-                    alert_notification = {
-                        'type': 'info',
-                        'message': 'new alert',
-                        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                        'symbol': exchange_code,
-                        'timeframe': digit_name
-                    }
-                    alert_json = json.dumps(alert_notification)
-                    await redis_client.publish('alerts', alert_json)
-                    
-                except Exception as e:
-                    logger.error(f"Error publishing alert to Redis: {e}")
+                            await redis_client.zadd(sorted_set_key, {json.dumps(alert_data): timestamp_score})
+                        # Set TTL on Alerts key (30 days - matches alerts_simple)
+                        await set_ttl_safe(redis_client, sorted_set_key)
+                        
+                        # Store simple alert in Redis sorted set: symbol, interval, candle timestamp
+                        try:
+                            simple_alert_key = "alerts_simple"
+                            # Use candle timestamp as score for chronological ordering
+                            candle_timestamp_score = int(alert_timestamp_dt.timestamp())
+                            # Value: symbol,interval,candle_timestamp
+                            simple_alert_value = f"{exchange_code},{digit_name},{alert_timestamp_dt.strftime('%Y-%m-%d %H:%M:%S')}"
+                            # Check if score already exists using zcount (efficient check)
+                            existing_count = await redis_client.zcount(simple_alert_key, candle_timestamp_score, candle_timestamp_score)
+                            # Only add if score doesn't exist
+                            if existing_count == 0:
+                                await redis_client.zadd(simple_alert_key, {simple_alert_value: candle_timestamp_score})
+                            # Set TTL to keep Redis clean (30 days)
+                            await set_ttl_safe(redis_client, simple_alert_key)
+                        except Exception as simple_err:
+                            logger.error(f"Error storing simple alert to Redis: {simple_err}")
+                        
+                        # ✅ FIX 3: Publish alert notification with retry
+                        max_redis_retries = 3
+                        redis_published = False
+                        for attempt in range(max_redis_retries):
+                            try:
+                                alert_notification = {
+                                    'type': 'info',
+                                    'message': 'new alert',
+                                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                                    'symbol': exchange_code,
+                                    'timeframe': digit_name
+                                }
+                                alert_json = json.dumps(alert_notification)
+                                await redis_client.publish('alerts', alert_json)
+                                redis_published = True
+                                break
+                            except Exception as e:
+                                logger.warning(f"Redis publish attempt {attempt+1}/{max_redis_retries} failed for {exchange_code}: {e}")
+                                if attempt < max_redis_retries - 1:
+                                    await asyncio.sleep(0.1 * (attempt + 1))
+                        if not redis_published:
+                            logger.error(f"CRITICAL: Failed to publish to Redis after {max_redis_retries} attempts for {exchange_code}")
+                        
+                    except Exception as e:
+                        logger.error(f"Error publishing alert to Redis: {e}")
+                else:
+                    logger.error(f"Skipping Telegram/Redis - DB save failed for {exchange_code}")
                 
                 return db_error_message if 'db_error_message' in locals() else ""
                 
@@ -705,7 +753,7 @@ class RedisAlertEngine:
             logger.error(f"Error in process_alert: {e}")
             return f"Error in process_alert: {e}"
 
-    async def _store_indicator_data(self, redis_client, indicator_key, timestamps, values, signals=None, values2=None):
+    async def _store_indicator_data(self, redis_client, indicator_key, timestamps, values, signals=None, values2=None, values3=None):
         """Store indicator data in Redis sorted set.
         
         Args:
@@ -765,6 +813,11 @@ class RedisAlertEngine:
                         # Stochastic indicator: use k_value and d_value
                         indicator_data['k_value'] = float(values[i]) if not np.isnan(values[i]) else None
                         indicator_data['d_value'] = float(values2[i]) if not np.isnan(values2[i]) else None
+                    elif values3 is not None and i < len(values3):
+                        # LRC indicator: use lrl_value, ucl_value, lcl_value
+                        indicator_data['lrl_value'] = float(values[i]) if not np.isnan(values[i]) else None
+                        indicator_data['ucl_value'] = float(values2[i]) if values2 is not None and i < len(values2) and not np.isnan(values2[i]) else None
+                        indicator_data['lcl_value'] = float(values3[i]) if i < len(values3) and not np.isnan(values3[i]) else None
                     else:
                         # Fallback: use generic value (shouldn't happen in normal flow)
                         indicator_data['value'] = float(values[i]) if not np.isnan(values[i]) else None
@@ -1413,6 +1466,16 @@ class RedisAlertEngine:
                                 logger.warning(f"Invalid Stochastic values: {stoch_values}")
                                 continue
 
+                            # Get LRC parameters for filter
+                            lrcid = condition_filtered['lrcid'].iloc[0] if 'lrcid' in condition_filtered.columns else None
+                            lrc_filter_enabled = condition_filtered['lrc_filter_enabled'].iloc[0] if 'lrc_filter_enabled' in condition_filtered.columns else 0
+                            lrc_filter_type = condition_filtered['lrc_filter_type'].iloc[0] if 'lrc_filter_type' in condition_filtered.columns else None
+                            
+                            # Get time filter parameters
+                            time_filter_enabled = condition_filtered['time_filter_enabled'].iloc[0] if 'time_filter_enabled' in condition_filtered.columns else 0
+                            time_filter_start = condition_filtered['time_filter_start'].iloc[0] if 'time_filter_start' in condition_filtered.columns else None
+                            time_filter_end = condition_filtered['time_filter_end'].iloc[0] if 'time_filter_end' in condition_filtered.columns else None
+                            
                             # Get angle parameters
                             lrcangletype = condition_filtered['lrcangletype'].iloc[0] if 'lrcangletype' in condition_filtered.columns else 'None'
                             lrcanglestart = condition_filtered['lrcanglestart'].iloc[0] if 'lrcanglestart' in condition_filtered.columns else 0
@@ -1446,13 +1509,35 @@ class RedisAlertEngine:
                                 # Stochastic indicator key (single key for both K and D, using underscore for config values)
                                 stoch_key = f"stoch_data:{symbol}:{interval}:{stoch_period}_{k_avg}_{d_avg}"
                                 
-                                # OPTIMIZED: Check both keys in single pipeline call (2 Redis ops -> 1)
+                                # LRC indicator key (if LRC filter is enabled)
+                                lrc_key = None
+                                lrc_period = None
+                                lrc_stdev = None
+                                lrc_key_exists = False
+                                
+                                if lrc_filter_enabled and lrcid:
+                                    lrc_filtered = self.df_custom_indicators[self.df_custom_indicators.id == lrcid]
+                                    if not lrc_filtered.empty:
+                                        lrc_values = lrc_filtered['value'].iloc[0]
+                                        try:
+                                            period_str, std_dev_str = lrc_values.split(',')
+                                            lrc_period = int(float(period_str.strip()))
+                                            lrc_stdev = float(std_dev_str.strip())
+                                            lrc_key = f"lrc:{symbol}:{interval}:{lrc_period}_{lrc_stdev}"
+                                        except (ValueError, IndexError):
+                                            logger.warning(f"Invalid LRC values: {lrc_values}")
+                                
+                                # OPTIMIZED: Check indicator keys in single pipeline call
                                 check_pipe = redis_client.pipeline()
                                 check_pipe.exists(psar_key)
                                 check_pipe.exists(stoch_key)
+                                if lrc_key:
+                                    check_pipe.exists(lrc_key)
                                 check_results = await check_pipe.execute()
                                 psar_key_exists = check_results[0]
                                 stoch_exists = check_results[1]
+                                if lrc_key:
+                                    lrc_key_exists = check_results[2]
                                 
                                 # Handle indicators - restructured to avoid redundant fetches
                                 # Initialize variables
@@ -1460,6 +1545,9 @@ class RedisAlertEngine:
                                 signals = None
                                 K = None
                                 D = None
+                                LRL = None
+                                UCL = None
+                                LCL = None
                                 dates_str = [pd.to_datetime(ts).strftime('%Y-%m-%d %H:%M:%S') for ts in dates_combined]
                                 
                                 # OPTIMIZED: Handle both keys together to avoid redundant fetches
@@ -1471,6 +1559,9 @@ class RedisAlertEngine:
                                     last_n_indicators = min(250, len(data_combined))
                                     stored_psar = await self._get_indicator_data(redis_client, psar_key, last_n=last_n_indicators)
                                     stored_stoch = await self._get_indicator_data(redis_client, stoch_key, last_n=last_n_indicators)
+                                    stored_lrc = {}
+                                    if lrc_key and lrc_key_exists:
+                                        stored_lrc = await self._get_indicator_data(redis_client, lrc_key, last_n=last_n_indicators)
                                     
                                     ohlc_for_ind = ohlc_df.copy()
                                     
@@ -1486,7 +1577,7 @@ class RedisAlertEngine:
                                         low_inc = ohlc_for_ind['low'].values.astype(float)
                                         close_inc = ohlc_for_ind['close'].values.astype(float)
                                         
-                                        # CRITICAL OPTIMIZATION: Calculate PSAR and Stochastic in PARALLEL using thread pool
+                                        # CRITICAL OPTIMIZATION: Calculate PSAR, Stochastic, and LRC in PARALLEL using thread pool
                                         # This prevents CPU-bound TA-Lib calculations from blocking the event loop
                                         # Expected speedup: 5-10x (CPU work runs in parallel, doesn't block other tasks)
                                         psar_task = psar_async(high_inc, low_inc, close_inc,
@@ -1498,8 +1589,16 @@ class RedisAlertEngine:
                                                                                d_period=d_avg, 
                                                                                k_smoothing_period=k_avg)
                                         
-                                        # Run both calculations in parallel (non-blocking)
-                                        psar_values_inc, (K_inc, D_inc) = await asyncio.gather(psar_task, stoch_task)
+                                        # Calculate LRC if filter is enabled
+                                        lrc_task = None
+                                        if lrc_filter_enabled and lrc_period and lrc_stdev:
+                                            lrc_task = calc_lrc_async(close_inc, lrc_period, lrc_stdev)
+                                        
+                                        # Run calculations in parallel (non-blocking)
+                                        if lrc_task:
+                                            psar_values_inc, (K_inc, D_inc), (LRL_inc, UCL_inc, LCL_inc, _) = await asyncio.gather(psar_task, stoch_task, lrc_task)
+                                        else:
+                                            psar_values_inc, (K_inc, D_inc) = await asyncio.gather(psar_task, stoch_task)
                                         
                                         # Calculate PSAR signals (lightweight, can run in event loop)
                                         psar_signals_inc = get_psar_signals(close_inc, psar_values_inc)
@@ -1509,10 +1608,15 @@ class RedisAlertEngine:
                                                                         psar_values_inc, signals=psar_signals_inc)
                                         
                                         # Store all Stochastic values (only new ones will be added, existing scores won't be overwritten)
-                                        
-                                        # Store all Stochastic values (only new ones will be added, existing scores won't be overwritten)
                                         await self._store_indicator_data(redis_client, stoch_key, timestamps_inc, 
                                                                         K_inc, values2=D_inc)
+                                        
+                                        # Store LRC values if calculated
+                                        if lrc_task and lrc_key:
+                                            await self._store_indicator_data(redis_client, lrc_key, timestamps_inc,
+                                                                            LRL_inc, values2=UCL_inc, values3=LCL_inc)
+                                            stored_lrc = await self._get_indicator_data(redis_client, lrc_key, last_n=last_n_indicators)
+                                            logger.info(f"[PROCESS] symbol={symbol} interval={interval} conditionID={conditionID} cond={cond} | Step 8: LRC stored, fetched {len(stored_lrc)} entries")
                                         
                                         # CRITICAL: Re-fetch stored data after storing new values to get complete stored dataset
                                         # This ensures we use ONLY stored data (including newly stored) for alert checks
@@ -1574,6 +1678,41 @@ class RedisAlertEngine:
                                         
                                         K = np.array(K_list)
                                         D = np.array(D_list)
+                                        
+                                        # For LRC: Use ONLY stored Redis values for alert checks (if filter enabled)
+                                        # Only populate LRC arrays if filter is enabled AND we have valid LRC data
+                                        if lrc_filter_enabled and lrc_key and stored_lrc:
+                                            logger.info(f"[PROCESS] symbol={symbol} interval={interval} conditionID={conditionID} cond={cond} | Step 8: Building LRC arrays from {len(stored_lrc)} stored entries")
+                                            stored_lrc_normalized = {}
+                                            for ts_key, value in stored_lrc.items():
+                                                normalized_key = normalize_timestamp(ts_key)
+                                                stored_lrc_normalized[normalized_key] = value
+                                            
+                                            LRL_list = []
+                                            UCL_list = []
+                                            LCL_list = []
+                                            for ts in dates_str:
+                                                normalized_ts = normalize_timestamp(ts)
+                                                if normalized_ts in stored_lrc_normalized:
+                                                    lrc_data = stored_lrc_normalized[normalized_ts]
+                                                    LRL_list.append(lrc_data.get('lrl_value') if lrc_data.get('lrl_value') is not None else np.nan)
+                                                    UCL_list.append(lrc_data.get('ucl_value') if lrc_data.get('ucl_value') is not None else np.nan)
+                                                    LCL_list.append(lrc_data.get('lcl_value') if lrc_data.get('lcl_value') is not None else np.nan)
+                                                else:
+                                                    LRL_list.append(np.nan)
+                                                    UCL_list.append(np.nan)
+                                                    LCL_list.append(np.nan)
+                                            
+                                            LRL = np.array(LRL_list)
+                                            UCL = np.array(UCL_list)
+                                            LCL = np.array(LCL_list)
+                                        elif lrc_filter_enabled and lrc_filter_type:
+                                            # LRC filter is enabled but no LRC data available - log warning
+                                            logger.warning(f"LRC filter enabled but no LRC data available (lrc_key={lrc_key}, stored_lrc exists={stored_lrc is not None})")
+                                            # Set to None so the check below will skip LRC filter
+                                            LRL = None
+                                            UCL = None
+                                            LCL = None
                                 
                                 else:
                                     # One or both keys don't exist - handle independently
@@ -1743,7 +1882,10 @@ class RedisAlertEngine:
                                     if window_size < len(data_combined):
                                         padding_size = len(data_combined) - window_size
                                         psar_data = np.concatenate([np.full(padding_size, np.nan), psar_data_window])
-                                        signals = np.concatenate([np.zeros(padding_size, dtype=int), signals_window])
+                                        # ✅ FIX: Recalculate signals on full dataset instead of padding with zeros
+                                        # Get full close prices for signal calculation
+                                        close_full = data_combined[:, 3]  # Close prices from full dataset
+                                        signals = get_psar_signals(close_full, psar_data)
                                     else:
                                         psar_data = psar_data_window
                                         signals = signals_window
@@ -1763,6 +1905,84 @@ class RedisAlertEngine:
                                         K = K_window
                                         D = D_window
                                 
+                                # Calculate LRC if filter is enabled but LRC data is not available (fallback path)
+                                if lrc_filter_enabled and lrc_filter_type and (LRL is None or UCL is None or LCL is None):
+                                    if lrc_period and lrc_stdev and lrc_key:
+                                        try:
+                                            logger.info(f"[PROCESS] symbol={symbol} interval={interval} conditionID={conditionID} cond={cond} | Step 8: Calculating LRC (fallback path) period={lrc_period}, stdev={lrc_stdev}")
+                                            # Calculate LRC on window
+                                            LRL_window, UCL_window, LCL_window, _ = await calc_lrc_async(close_window, lrc_period, lrc_stdev)
+                                            
+                                            # Store LRC values in Redis
+                                            ohlc_for_lrc = ohlc_df.copy()
+                                            if ohlc_for_lrc is not None and not ohlc_for_lrc.empty:
+                                                ohlc_for_lrc['timestamp_dt'] = pd.to_datetime(ohlc_for_lrc['timestamp'])
+                                                timestamps_lrc = ohlc_for_lrc['timestamp_dt'].values
+                                                close_lrc = ohlc_for_lrc['close'].values.astype(float)
+                                                
+                                                # Calculate LRC on full dataset for storage
+                                                LRL_full, UCL_full, LCL_full, _ = await calc_lrc_async(close_lrc, lrc_period, lrc_stdev)
+                                                await self._store_indicator_data(redis_client, lrc_key, timestamps_lrc,
+                                                                                LRL_full, values2=UCL_full, values3=LCL_full)
+                                                
+                                                # Fetch stored LRC data
+                                                last_n_indicators = min(250, len(data_combined))
+                                                stored_lrc = await self._get_indicator_data(redis_client, lrc_key, last_n=last_n_indicators)
+                                                
+                                                # Build LRC arrays from stored data
+                                                if stored_lrc:
+                                                    def normalize_timestamp(ts):
+                                                        try:
+                                                            dt = pd.to_datetime(ts)
+                                                            return dt.strftime('%Y-%m-%d %H:%M:%S')
+                                                        except Exception:
+                                                            return str(ts)
+                                                    
+                                                    stored_lrc_normalized = {}
+                                                    for ts_key, value in stored_lrc.items():
+                                                        normalized_key = normalize_timestamp(ts_key)
+                                                        stored_lrc_normalized[normalized_key] = value
+                                                    
+                                                    dates_str = [pd.to_datetime(ts).strftime('%Y-%m-%d %H:%M:%S') for ts in dates_combined]
+                                                    LRL_list = []
+                                                    UCL_list = []
+                                                    LCL_list = []
+                                                    for ts in dates_str:
+                                                        normalized_ts = normalize_timestamp(ts)
+                                                        if normalized_ts in stored_lrc_normalized:
+                                                            lrc_data = stored_lrc_normalized[normalized_ts]
+                                                            LRL_list.append(lrc_data.get('lrl_value') if lrc_data.get('lrl_value') is not None else np.nan)
+                                                            UCL_list.append(lrc_data.get('ucl_value') if lrc_data.get('ucl_value') is not None else np.nan)
+                                                            LCL_list.append(lrc_data.get('lcl_value') if lrc_data.get('lcl_value') is not None else np.nan)
+                                                        else:
+                                                            LRL_list.append(np.nan)
+                                                            UCL_list.append(np.nan)
+                                                            LCL_list.append(np.nan)
+                                                    
+                                                    LRL = np.array(LRL_list)
+                                                    UCL = np.array(UCL_list)
+                                                    LCL = np.array(LCL_list)
+                                                    logger.info(f"[PROCESS] symbol={symbol} interval={interval} conditionID={conditionID} cond={cond} | Step 8: LRC calculated and stored (fallback path)")
+                                                else:
+                                                    logger.warning(f"[PROCESS] symbol={symbol} interval={interval} conditionID={conditionID} cond={cond} | Step 8: LRC calculated but stored_lrc is empty after fetch")
+                                            else:
+                                                # Pad arrays to match full dataset length
+                                                if window_size < len(data_combined):
+                                                    padding_size = len(data_combined) - window_size
+                                                    LRL = np.concatenate([np.full(padding_size, np.nan), LRL_window])
+                                                    UCL = np.concatenate([np.full(padding_size, np.nan), UCL_window])
+                                                    LCL = np.concatenate([np.full(padding_size, np.nan), LCL_window])
+                                                else:
+                                                    LRL = LRL_window
+                                                    UCL = UCL_window
+                                                    LCL = LCL_window
+                                        except Exception as e:
+                                            logger.error(f"[PROCESS] symbol={symbol} interval={interval} conditionID={conditionID} cond={cond} | Step 8: Error calculating LRC (fallback): {e}")
+                                            import traceback
+                                            logger.error(f"[PROCESS] LRC fallback traceback: {traceback.format_exc()}")
+                                    else:
+                                        logger.warning(f"[PROCESS] symbol={symbol} interval={interval} conditionID={conditionID} cond={cond} | Step 8: LRC filter enabled but lrc_period={lrc_period}, lrc_stdev={lrc_stdev}, lrc_key={lrc_key}")
+                                
                                 # Align indicator arrays with data_combined for alert checks
                                 # If we have full data from Redis, we need to align with the window we're checking
                                 if psar_data is not None and len(psar_data) < len(data_combined):
@@ -1770,7 +1990,9 @@ class RedisAlertEngine:
                                     logger.info(f"[PROCESS] symbol={symbol} interval={interval} conditionID={conditionID} cond={cond} | Step 8: Padding PSAR data to match data_combined length")
                                     padding_size = len(data_combined) - len(psar_data)
                                     psar_data = np.concatenate([np.full(padding_size, np.nan), psar_data])
-                                    signals = np.concatenate([np.zeros(padding_size, dtype=int), signals])
+                                    # ✅ FIX: Recalculate signals on full dataset instead of padding with zeros
+                                    close_full = data_combined[:, 3]  # Close prices from full dataset
+                                    signals = get_psar_signals(close_full, psar_data)
                                 
                                 if K is not None and len(K) < len(data_combined):
                                     logger.info(f"[PROCESS] symbol={symbol} interval={interval} conditionID={conditionID} cond={cond} | Step 8: Padding K data to match data_combined length")
@@ -1887,9 +2109,24 @@ class RedisAlertEngine:
                                         logger.warning(f"[ALERT_CHECK] Index {i} out of bounds for {symbol} {interval} (len={len(ha_combined)})")
                                         continue
                                     
+                                    # ✅ FIX 3: Verify signals array alignment before using
+                                    if signals is None or len(signals) == 0:
+                                        logger.warning(f"[ALERT_CHECK] Signals array is empty for {symbol} {interval}")
+                                        continue
+                                    
                                     if i >= len(signals) or i < 0:
                                         logger.warning(f"[ALERT_CHECK] Signal index {i} out of bounds for {symbol} {interval} (len={len(signals)})")
                                         continue
+                                    
+                                    # Verify that signals array matches data_combined length
+                                    if len(signals) != len(data_combined):
+                                        logger.warning(
+                                            f"[ALERT_CHECK] Signal array length mismatch: signals={len(signals)}, "
+                                            f"data_combined={len(data_combined)} for {symbol} {interval}"
+                                        )
+                                        # Recalculate signals on full dataset as fallback
+                                        close_full = data_combined[:, 3]
+                                        signals = get_psar_signals(close_full, psar_data)
                                         
                                     open_ha = ha_combined[i, 0]
                                     high_ha = ha_combined[i, 1]
@@ -1959,6 +2196,141 @@ class RedisAlertEngine:
                                     # Detailed alert check logging with all values
                                     failure_reasons = []
                                     
+                                    # Check time filter (exclude alerts in specified time range)
+                                    if time_filter_enabled and time_filter_start and time_filter_end:
+                                        try:
+                                            alert_time = alert_timestamp.time()
+                                            # Parse time strings (format: "HH:MM" or "HH:MM:SS")
+                                            # Handle multiple input types: string, time, Timedelta, pandas Timedelta
+                                            def parse_time(t_val):
+                                                if isinstance(t_val, str):
+                                                    parts = t_val.split(':')
+                                                    return dt_time(int(parts[0]), int(parts[1]), int(parts[2]) if len(parts) > 2 else 0)
+                                                elif isinstance(t_val, dt_time):
+                                                    return t_val
+                                                elif hasattr(t_val, 'total_seconds'):  # Timedelta object
+                                                    # Convert Timedelta to time (assumes it's a time offset)
+                                                    total_seconds = int(t_val.total_seconds())
+                                                    hours = (total_seconds // 3600) % 24
+                                                    minutes = (total_seconds % 3600) // 60
+                                                    seconds = total_seconds % 60
+                                                    return dt_time(hours, minutes, seconds)
+                                                elif pd.notna(t_val) and t_val is not None:
+                                                    # Try to convert to string first, then parse
+                                                    return parse_time(str(t_val))
+                                                return None
+                                            
+                                            start_time = parse_time(time_filter_start)
+                                            end_time = parse_time(time_filter_end)
+                                            
+                                            # Skip if parsing failed
+                                            if start_time is None or end_time is None:
+                                                logger.warning(f"Could not parse time filter values: start={time_filter_start}, end={time_filter_end}")
+                                                # Continue without time filter check
+                                            else:
+                                                # Check if alert time falls within excluded range
+                                                if start_time == end_time:
+                                                    # Same time: exclude alerts at exact time
+                                                    if alert_time == start_time:
+                                                        failure_reasons.append(f"Alert time {alert_time} matches excluded time {start_time}")
+                                                        result_status = "REJECTED"
+                                                        result_reason = failure_reasons[-1]
+                                                        logger.info(
+                                                            f"[ALERT_CHECK] symbol={symbol} timeframe={interval} timestamp={alert_timestamp_str} | "
+                                                            f"RESULT: {result_status} | REASON: {result_reason}"
+                                                        )
+                                                        continue
+                                                else:
+                                                    # Time range: exclude alerts within range
+                                                    if start_time <= end_time:
+                                                        # Normal range (e.g., 10:00 to 11:00)
+                                                        if start_time <= alert_time <= end_time:
+                                                            failure_reasons.append(f"Alert time {alert_time} falls within excluded range {start_time}-{end_time}")
+                                                            result_status = "REJECTED"
+                                                            result_reason = failure_reasons[-1]
+                                                            logger.info(
+                                                                f"[ALERT_CHECK] symbol={symbol} timeframe={interval} timestamp={alert_timestamp_str} | "
+                                                                f"RESULT: {result_status} | REASON: {result_reason}"
+                                                            )
+                                                            continue
+                                                    else:
+                                                        # Wraps around midnight (shouldn't happen for market hours 9:15-15:30)
+                                                        if alert_time >= start_time or alert_time <= end_time:
+                                                            failure_reasons.append(f"Alert time {alert_time} falls within excluded range {start_time}-{end_time}")
+                                                            result_status = "REJECTED"
+                                                            result_reason = failure_reasons[-1]
+                                                            logger.info(
+                                                                f"[ALERT_CHECK] symbol={symbol} timeframe={interval} timestamp={alert_timestamp_str} | "
+                                                                f"RESULT: {result_status} | REASON: {result_reason}"
+                                                            )
+                                                            continue
+                                        except Exception as e:
+                                            logger.warning(f"Error checking time filter: {e}")
+                                            import traceback
+                                            logger.warning(f"Time filter error traceback: {traceback.format_exc()}")
+                                    
+                                    # Check LRC filter (high must be below middle_LRC or lower_LRC)
+                                    if lrc_filter_enabled and lrc_filter_type:
+                                        # Only check if LRC arrays are available and not None
+                                        if LRL is not None and UCL is not None and LCL is not None:
+                                        if i < len(LRL) and i < len(UCL) and i < len(LCL):
+                                            lrl_value = LRL[i]
+                                            ucl_value = UCL[i]
+                                            lcl_value = LCL[i]
+                                            
+                                            if not (np.isnan(lrl_value) or np.isnan(ucl_value) or np.isnan(lcl_value)):
+                                                middle_lrc = (ucl_value + lcl_value) / 2  # Middle LRC line
+                                                
+                                                if lrc_filter_type == 'middle' or lrc_filter_type == 1:
+                                                    # Check: high < middle_LRC
+                                                    if not (high_ha < middle_lrc):
+                                                        failure_reasons.append(f"High {high_ha:.2f} not below middle LRC {middle_lrc:.2f}")
+                                                        result_status = "REJECTED"
+                                                        result_reason = failure_reasons[-1]
+                                                        logger.info(
+                                                            f"[ALERT_CHECK] symbol={symbol} timeframe={interval} timestamp={alert_timestamp_str} | "
+                                                            f"High_HA={high_ha:.2f} Middle_LRC={middle_lrc:.2f} | "
+                                                            f"RESULT: {result_status} | REASON: {result_reason}"
+                                                        )
+                                                        continue
+                                                elif lrc_filter_type == 'lower' or lrc_filter_type == 2:
+                                                    # Check: high < lower_LRC
+                                                    if not (high_ha < lcl_value):
+                                                        failure_reasons.append(f"High {high_ha:.2f} not below lower LRC {lcl_value:.2f}")
+                                                        result_status = "REJECTED"
+                                                        result_reason = failure_reasons[-1]
+                                                        logger.info(
+                                                            f"[ALERT_CHECK] symbol={symbol} timeframe={interval} timestamp={alert_timestamp_str} | "
+                                                            f"High_HA={high_ha:.2f} Lower_LRC={lcl_value:.2f} | "
+                                                            f"RESULT: {result_status} | REASON: {result_reason}"
+                                                        )
+                                                        continue
+                                            else:
+                                                failure_reasons.append("LRC values are NaN")
+                                                result_status = "REJECTED"
+                                                result_reason = failure_reasons[-1]
+                                                logger.warning(
+                                                    f"[ALERT_CHECK] symbol={symbol} timeframe={interval} timestamp={alert_timestamp_str} | "
+                                                    f"RESULT: {result_status} | REASON: {result_reason}"
+                                            )
+                                            continue
+                                        else:
+                                            failure_reasons.append("LRC data index out of range")
+                                            result_status = "REJECTED"
+                                            result_reason = failure_reasons[-1]
+                                            logger.warning(
+                                                f"[ALERT_CHECK] symbol={symbol} timeframe={interval} timestamp={alert_timestamp_str} | "
+                                                f"RESULT: {result_status} | REASON: {result_reason}"
+                                            )
+                                            continue
+                                        else:
+                                            # LRC filter enabled but no LRC data available - skip filter check (don't reject alert)
+                                            logger.warning(
+                                                f"[ALERT_CHECK] symbol={symbol} timeframe={interval} timestamp={alert_timestamp_str} | "
+                                                f"LRC filter enabled but LRC data not available (LRL={LRL is not None}, UCL={UCL is not None}, LCL={LCL is not None}) - skipping LRC filter check"
+                                            )
+                                            # Continue without LRC filter check (allow alert to proceed)
+                                    
                                     # Check if K is within range (skip if K is NaN/None)
                                     if stoch_k is None:
                                         failure_reasons.append(f"K value is NaN/None (cannot check range)")
@@ -1988,15 +2360,34 @@ class RedisAlertEngine:
                                         )
                                         continue
 
-                                    # Check PSAR signal direction
-                                    psar_signal_match = psar_signal == signaldirection
-                                    if not psar_signal_match:
-                                        failure_reasons.append(f"PSAR signal {psar_signal} does not match required direction {signaldirection}")
+                                    # Check PSAR signal direction with defensive checks
+                                    # Coerce to int to avoid numpy type comparison issues
+                                    psar_signal_int = int(psar_signal) if not np.isnan(psar_signal) else 0
+                                    signaldirection_int = int(signaldirection)
+
+                                    # ✅ FIX 1: Defensive check - reject if signal is 0 when direction requires crossover
+                                    if psar_signal_int == 0 and signaldirection_int != 0:
+                                        failure_reasons.append(f"PSAR signal is 0 (no crossover) but required direction is {signaldirection_int}")
                                         result_status = "REJECTED"
                                         result_reason = failure_reasons[-1]
                                         logger.info(
                                             f"[ALERT_CHECK] symbol={symbol} timeframe={interval} timestamp={alert_timestamp_str} | "
-                                            f"PSAR_value={safe_format(psar_value)} PSAR_signal={psar_signal} | "
+                                            f"PSAR_value={safe_format(psar_value)} PSAR_signal={psar_signal_int} (coerced) | "
+                                            f"K={safe_format(stoch_k)} D={safe_format(stoch_d)} | "
+                                            f"RESULT: {result_status} | "
+                                            f"REASON: {result_reason}"
+                                        )
+                                        continue
+
+                                    # ✅ FIX 2: Explicit type-coerced comparison
+                                    psar_signal_match = psar_signal_int == signaldirection_int
+                                    if not psar_signal_match:
+                                        failure_reasons.append(f"PSAR signal {psar_signal_int} does not match required direction {signaldirection_int}")
+                                        result_status = "REJECTED"
+                                        result_reason = failure_reasons[-1]
+                                        logger.info(
+                                            f"[ALERT_CHECK] symbol={symbol} timeframe={interval} timestamp={alert_timestamp_str} | "
+                                            f"PSAR_value={safe_format(psar_value)} PSAR_signal={psar_signal_int} (coerced) | "
                                             f"K={safe_format(stoch_k)} D={safe_format(stoch_d)} | "
                                             f"RESULT: {result_status} | "
                                             f"REASON: {result_reason}"
@@ -2038,17 +2429,40 @@ class RedisAlertEngine:
                                     
                                     # Determine final result and reason
                                     if alert_triggered:
-                                        result_status = "PASSED"
-                                        result_reason = "All conditions met - alert triggered"
+                                        # ✅ FIX 4: Final defensive assertion before processing alert
+                                        # Verify PSAR signal check passed (defensive programming)
+                                        psar_signal_int = int(psar_signal) if not np.isnan(psar_signal) else 0
+                                        signaldirection_int = int(signaldirection)
                                         
-                                        # Process alert and capture database error
-                                        db_error_message = await self.process_alert(
-                                            symbol, scanID, alert_timestamp, LRL_value, 
-                                            lrcangletype, lrcanglestart, lrcangleend, 
-                                            angle_degrees, crossover_index, psar_signal, 
-                                            candle_color, high_ha, digit_name, conditionID, 
-                                            redis_client,close_ha,scan_name
-                                        )
+                                        if psar_signal_int != signaldirection_int:
+                                            logger.error(
+                                                f"[ALERT_CHECK][CRITICAL] Alert triggered but PSAR signal mismatch: "
+                                                f"signal={psar_signal_int}, direction={signaldirection_int} for {symbol} {interval}"
+                                            )
+                                            # Don't process alert if check failed
+                                            alert_triggered = False
+                                            result_status = "REJECTED"
+                                            result_reason = f"CRITICAL: PSAR signal check failed: {psar_signal_int} != {signaldirection_int}"
+                                            logger.info(
+                                                f"[ALERT_CHECK] symbol={symbol} timeframe={interval} timestamp={alert_timestamp_str} | "
+                                                f"PSAR_value={safe_format(psar_value)} PSAR_signal={psar_signal_int} | "
+                                                f"K={safe_format(stoch_k)} D={safe_format(stoch_d)} | "
+                                                f"RESULT: {result_status} | "
+                                                f"REASON: {result_reason}"
+                                            )
+                                            db_error_message = ""
+                                        else:
+                                            result_status = "PASSED"
+                                            result_reason = "All conditions met - alert triggered"
+                                            
+                                            # Process alert and capture database error
+                                            db_error_message = await self.process_alert(
+                                                symbol, scanID, alert_timestamp, LRL_value, 
+                                                lrcangletype, lrcanglestart, lrcangleend, 
+                                                angle_degrees, crossover_index, psar_signal, 
+                                                candle_color, high_ha, digit_name, conditionID, 
+                                                redis_client,close_ha,scan_name
+                                            )
                                     else:
                                         # Log failure with all details
                                         failure_reason = "; ".join(failure_reasons) if failure_reasons else "Unknown reason"

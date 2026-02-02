@@ -77,49 +77,87 @@ def find_symbol_by_condition(condition_id):
         if conn:
             conn.close()
 
-def get_actual_alerts(symbol, condition_id):
-    """Get actual alerts from database for symbol and condition"""
+def get_actual_alerts(symbol, condition_id, scanid=None):
+    """Get actual alerts from database for symbol and condition (optionally filter by scanid)"""
     conn = None
     cursor = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        query = """
-            SELECT 
-                a.id AS alert_id,
-                a.symbol,
-                a.datetime AS alert_datetime,
-                a.timeframe,
-                s.name AS scan_name,
-                s.id AS scan_id,
-                c.name AS condition_name,
-                c.id AS condition_id,
-                c.condition1 AS cond1_enabled,
-                c.candle1,
-                c.psar1,
-                c.stochid,
-                c.kline_start,
-                c.kline_end,
-                c.signaldirection,
-                c.signalColor,
-                si.1min AS `1min`,
-                si.2min AS `2min`,
-                si.5min AS `5min`,
-                si.15min AS `15min`,
-                si.30min AS `30min`,
-                si.60min AS `60min`
-            FROM alerts a
-            LEFT JOIN scans s ON a.scanid = s.id
-            LEFT JOIN conditions c ON a.conditionID = c.id
-            LEFT JOIN scanitems si ON a.scanid = si.scanID AND a.conditionID = si.conditionID
-            WHERE a.symbol = %s 
-              AND a.conditionID = %s
-              AND a.deleted = 0
-            ORDER BY a.datetime DESC
-            LIMIT 100
-        """
-        cursor.execute(query, (symbol, condition_id))
+        if scanid:
+            query = """
+                SELECT 
+                    a.id AS alert_id,
+                    a.symbol,
+                    a.datetime AS alert_datetime,
+                    a.timeframe,
+                    s.name AS scan_name,
+                    s.id AS scan_id,
+                    c.name AS condition_name,
+                    c.id AS condition_id,
+                    c.condition1 AS cond1_enabled,
+                    c.candle1,
+                    c.psar1,
+                    c.stochid,
+                    c.kline_start,
+                    c.kline_end,
+                    c.signaldirection,
+                    c.signalColor,
+                    si.1min AS `1min`,
+                    si.2min AS `2min`,
+                    si.5min AS `5min`,
+                    si.15min AS `15min`,
+                    si.30min AS `30min`,
+                    si.60min AS `60min`
+                FROM alerts a
+                LEFT JOIN scans s ON a.scanid = s.id
+                LEFT JOIN conditions c ON a.conditionID = c.id
+                LEFT JOIN scanitems si ON a.scanid = si.scanID AND a.conditionID = si.conditionID
+                WHERE a.symbol = %s 
+                  AND a.conditionID = %s
+                  AND a.scanid = %s
+                  AND a.deleted = 0
+                ORDER BY a.datetime DESC
+                LIMIT 100
+            """
+            cursor.execute(query, (symbol, condition_id, scanid))
+        else:
+            query = """
+                SELECT 
+                    a.id AS alert_id,
+                    a.symbol,
+                    a.datetime AS alert_datetime,
+                    a.timeframe,
+                    s.name AS scan_name,
+                    s.id AS scan_id,
+                    c.name AS condition_name,
+                    c.id AS condition_id,
+                    c.condition1 AS cond1_enabled,
+                    c.candle1,
+                    c.psar1,
+                    c.stochid,
+                    c.kline_start,
+                    c.kline_end,
+                    c.signaldirection,
+                    c.signalColor,
+                    si.1min AS `1min`,
+                    si.2min AS `2min`,
+                    si.5min AS `5min`,
+                    si.15min AS `15min`,
+                    si.30min AS `30min`,
+                    si.60min AS `60min`
+                FROM alerts a
+                LEFT JOIN scans s ON a.scanid = s.id
+                LEFT JOIN conditions c ON a.conditionID = c.id
+                LEFT JOIN scanitems si ON a.scanid = si.scanID AND a.conditionID = si.conditionID
+                WHERE a.symbol = %s 
+                  AND a.conditionID = %s
+                  AND a.deleted = 0
+                ORDER BY a.datetime DESC
+                LIMIT 100
+            """
+            cursor.execute(query, (symbol, condition_id))
         results = cursor.fetchall()
         return pd.DataFrame(results)
     except Exception as e:
