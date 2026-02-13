@@ -70,7 +70,7 @@ async def send_telegram_message(stock, price, date, time, tf, sn):
     
     bot_token = '8213206702:AAGRu6r0ag2zjbvT8TyoBGBq0gx_I05uH6o'
     # Send to both channel and personal chat
-    chat_ids = ['@koshy_alerts', '1367653901']  # Channel and personal chat ID
+    chat_ids = ['@koshy_alerts', '1367653901', '5210270840']  # Channel and personal chat IDs
     
     global _TELEGRAM_BOT, _TELEGRAM_BOT_LOCK
     # CRITICAL: Use lock to prevent race condition when multiple alerts trigger in parallel
@@ -570,26 +570,15 @@ class RedisAlertEngine:
                 alert_timestamp_dt = datetime.now()
             
             # Determine if alert should be generated
-            # ✅ FIX: Handle NULL lrcangletype properly (when fields are nulled out)
-            should_generate_alert = False
-            
-            # If lrcangletype is None/NULL/empty, treat as non-custom (generate alert)
-            if not lrcangletype or pd.isna(lrcangletype) or str(lrcangletype).strip() == '':
-                should_generate_alert = True
-            elif lrcangletype == 'custom':
-                # For custom, check if angle is within range (but handle NULL values)
-                if lrcanglestart is not None and lrcangleend is not None and not pd.isna(lrcanglestart) and not pd.isna(lrcangleend):
-                    if lrcanglestart < angle_degrees < lrcangleend:
-                        should_generate_alert = True
-                else:
-                    # If custom angle but start/end are NULL, log warning and don't generate
-                    logger.warning(f"Custom angle type set but lrcanglestart/lrcangleend are NULL for {exchange_code}")
-            else:
-                # lrcangletype is set but not 'custom', generate alert
-                should_generate_alert = True
+            # NOTE: LRC angle filtering has been disabled as per latest requirements.
+            # Any condition that reaches this point (RESULT: PASSED) should generate an alert.
+            should_generate_alert = True
+            # We intentionally ignore lrcangletype / lrcanglestart / lrcangleend here.
             
             if should_generate_alert:
                 info = f"Alert {exchange_code} {alert_timestamp} K crossover: {crossover_index} psar: {psar_signal} color: {candle_color} high_ha: {high_ha} < LRL:{LRL_value}"
+                
+                logger.info(f"[process_alert] Alert should be generated for {exchange_code}. Database connection available: {self.db is not None}")
                 
                 if self.db:
                     module_name = 'alert custom angle' if lrcangletype == 'custom' else 'alert normal angle'
@@ -610,16 +599,20 @@ class RedisAlertEngine:
                             )
                             
                             # Insert alert with error handling
+                            logger.info(f"[process_alert] Attempting to insert alert: symbol={exchange_code}, timestamp={alert_timestamp}, scanID={scanID}, timeframe={digit_name}, conditionID={conditionID}")
                             alert_success = await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name, datetime.now(), conditionID)
                             
                             if alert_success:
                                 db_success = True
+                                logger.info(f"[process_alert] ✅ Alert successfully inserted to database: {exchange_code} at {alert_timestamp}")
                                 break  # Success! Break out of the retry loop
                             else:
-                                logger.warning(f"Database insertion failed for {exchange_code} (attempt {attempt+1}/{max_retries})")
+                                logger.warning(f"[process_alert] ❌ Database insertion failed for {exchange_code} (attempt {attempt+1}/{max_retries}) - insert_alert returned False")
                                 
                         except Exception as e:
-                            logger.warning(f"Error inserting to database (attempt {attempt+1}/{max_retries}): {e}")
+                            logger.error(f"[process_alert] ❌ Exception inserting to database (attempt {attempt+1}/{max_retries}): {type(e).__name__}: {e}")
+                            import traceback
+                            logger.error(f"[process_alert] Traceback: {traceback.format_exc()}")
                             
                         if attempt < max_retries - 1:
                             # Exponential backoff: 0.1s, 0.2s, 0.4s (instead of 1s blocking)
@@ -1596,7 +1589,13 @@ class RedisAlertEngine:
                                         
                                         # Run calculations in parallel (non-blocking)
                                         if lrc_task:
-                                            psar_values_inc, (K_inc, D_inc), (LRL_inc, UCL_inc, LCL_inc, _) = await asyncio.gather(psar_task, stoch_task, lrc_task)
+                                            psar_values_inc, (K_inc, D_inc), (LRL_inc, UCL_inc, LCL_inc, _) = await asyncio.gather(
+                                                psar_task, stoch_task, lrc_task
+                                            )
+                                            # ✅ Directly align LRC arrays with the current OHLC window
+                                            LRL = LRL_inc
+                                            UCL = UCL_inc
+                                            LCL = LCL_inc
                                         else:
                                             psar_values_inc, (K_inc, D_inc) = await asyncio.gather(psar_task, stoch_task)
                                         
@@ -1679,9 +1678,9 @@ class RedisAlertEngine:
                                         K = np.array(K_list)
                                         D = np.array(D_list)
                                         
-                                        # For LRC: Use ONLY stored Redis values for alert checks (if filter enabled)
-                                        # Only populate LRC arrays if filter is enabled AND we have valid LRC data
-                                        if lrc_filter_enabled and lrc_key and stored_lrc:
+                                        # For LRC: we now use the directly computed LRL/UCL/LCL arrays above for alerts.
+                                        # Keep Redis storage only for charts/debugging; do NOT rebuild LRC from stored timestamps.
+                                        if False and lrc_filter_enabled and lrc_key and stored_lrc:
                                             logger.info(f"[PROCESS] symbol={symbol} interval={interval} conditionID={conditionID} cond={cond} | Step 8: Building LRC arrays from {len(stored_lrc)} stored entries")
                                             stored_lrc_normalized = {}
                                             for ts_key, value in stored_lrc.items():
@@ -1691,6 +1690,7 @@ class RedisAlertEngine:
                                             LRL_list = []
                                             UCL_list = []
                                             LCL_list = []
+                                            missing_timestamps = []
                                             for ts in dates_str:
                                                 normalized_ts = normalize_timestamp(ts)
                                                 if normalized_ts in stored_lrc_normalized:
@@ -1702,6 +1702,43 @@ class RedisAlertEngine:
                                                     LRL_list.append(np.nan)
                                                     UCL_list.append(np.nan)
                                                     LCL_list.append(np.nan)
+                                                    missing_timestamps.append(normalized_ts)
+                                            
+                                            # ✅ FIX: If we have missing timestamps, recalculate LRC on-the-fly for those candles
+                                            # This handles cases where new candles were added after LRC was stored
+                                            if missing_timestamps and lrc_period and lrc_stdev:
+                                                logger.info(f"[PROCESS] symbol={symbol} interval={interval} conditionID={conditionID} | Step 8: {len(missing_timestamps)} timestamps missing from LRC, recalculating on-the-fly")
+                                                try:
+                                                    # Recalculate LRC on the full close array to get values for missing timestamps
+                                                    close_for_lrc = ohlc_for_ind['close'].values.astype(float)
+                                                    LRL_recalc, UCL_recalc, LCL_recalc, _ = await calc_lrc_async(close_for_lrc, lrc_period, lrc_stdev)
+                                                    
+                                                    # Map recalculated values back to the arrays
+                                                    ohlc_timestamps_str = [pd.to_datetime(ts).strftime('%Y-%m-%d %H:%M:%S') for ts in ohlc_for_ind['timestamp_dt'].values]
+                                                    for idx, ts in enumerate(dates_str):
+                                                        normalized_ts = normalize_timestamp(ts)
+                                                        if normalized_ts in missing_timestamps:
+                                                            # Find the index in ohlc_timestamps_str that matches
+                                                            try:
+                                                                ohlc_idx = ohlc_timestamps_str.index(normalized_ts)
+                                                                if ohlc_idx < len(LRL_recalc) and not np.isnan(LRL_recalc[ohlc_idx]):
+                                                                    LRL_list[idx] = LRL_recalc[ohlc_idx]
+                                                                    UCL_list[idx] = UCL_recalc[ohlc_idx]
+                                                                    LCL_list[idx] = LCL_recalc[ohlc_idx]
+                                                                    logger.debug(f"[PROCESS] symbol={symbol} interval={interval} | Filled missing LRC for {normalized_ts} from recalculation")
+                                                            except (ValueError, IndexError):
+                                                                pass  # Timestamp not found in OHLC data
+                                                except Exception as e:
+                                                    logger.warning(f"[PROCESS] symbol={symbol} interval={interval} conditionID={conditionID} | Error recalculating LRC: {e}")
+                                            
+                                            # Log missing timestamps for debugging (after recalculation attempt)
+                                            if missing_timestamps:
+                                                still_missing = [ts for idx, ts in enumerate(dates_str) if np.isnan(LRL_list[idx])]
+                                                if still_missing:
+                                                    logger.warning(f"[PROCESS] symbol={symbol} interval={interval} conditionID={conditionID} | Step 8: {len(still_missing)} timestamps still missing from LRC after recalculation (first 5: {still_missing[:5]})")
+                                                    # Log sample of available timestamps for comparison
+                                                    available_samples = list(stored_lrc_normalized.keys())[:5]
+                                                    logger.warning(f"[PROCESS] symbol={symbol} interval={interval} conditionID={conditionID} | Step 8: Sample available LRC timestamps (first 5): {available_samples}")
                                             
                                             LRL = np.array(LRL_list)
                                             UCL = np.array(UCL_list)
@@ -1910,62 +1947,32 @@ class RedisAlertEngine:
                                     if lrc_period and lrc_stdev and lrc_key:
                                         try:
                                             logger.info(f"[PROCESS] symbol={symbol} interval={interval} conditionID={conditionID} cond={cond} | Step 8: Calculating LRC (fallback path) period={lrc_period}, stdev={lrc_stdev}")
-                                            # Calculate LRC on window
-                                            LRL_window, UCL_window, LCL_window, _ = await calc_lrc_async(close_window, lrc_period, lrc_stdev)
                                             
-                                            # Store LRC values in Redis
+                                            # ✅ FIX: Use direct calculation approach (same as Path 1) to avoid timestamp mismatches
                                             ohlc_for_lrc = ohlc_df.copy()
                                             if ohlc_for_lrc is not None and not ohlc_for_lrc.empty:
                                                 ohlc_for_lrc['timestamp_dt'] = pd.to_datetime(ohlc_for_lrc['timestamp'])
                                                 timestamps_lrc = ohlc_for_lrc['timestamp_dt'].values
                                                 close_lrc = ohlc_for_lrc['close'].values.astype(float)
                                                 
-                                                # Calculate LRC on full dataset for storage
+                                                # Calculate LRC on full dataset for both storage AND alerts
                                                 LRL_full, UCL_full, LCL_full, _ = await calc_lrc_async(close_lrc, lrc_period, lrc_stdev)
+                                                
+                                                # Store LRC values in Redis (for charts/debugging)
                                                 await self._store_indicator_data(redis_client, lrc_key, timestamps_lrc,
                                                                                 LRL_full, values2=UCL_full, values3=LCL_full)
                                                 
-                                                # Fetch stored LRC data
-                                                last_n_indicators = min(250, len(data_combined))
-                                                stored_lrc = await self._get_indicator_data(redis_client, lrc_key, last_n=last_n_indicators)
+                                                # ✅ CRITICAL FIX: Use calculated arrays directly for alerts (no Redis lookup)
+                                                # This ensures 1:1 alignment with OHLC data and eliminates timestamp mismatch NaN issues
+                                                LRL = LRL_full
+                                                UCL = UCL_full
+                                                LCL = LCL_full
                                                 
-                                                # Build LRC arrays from stored data
-                                                if stored_lrc:
-                                                    def normalize_timestamp(ts):
-                                                        try:
-                                                            dt = pd.to_datetime(ts)
-                                                            return dt.strftime('%Y-%m-%d %H:%M:%S')
-                                                        except Exception:
-                                                            return str(ts)
-                                                    
-                                                    stored_lrc_normalized = {}
-                                                    for ts_key, value in stored_lrc.items():
-                                                        normalized_key = normalize_timestamp(ts_key)
-                                                        stored_lrc_normalized[normalized_key] = value
-                                                    
-                                                    dates_str = [pd.to_datetime(ts).strftime('%Y-%m-%d %H:%M:%S') for ts in dates_combined]
-                                                    LRL_list = []
-                                                    UCL_list = []
-                                                    LCL_list = []
-                                                    for ts in dates_str:
-                                                        normalized_ts = normalize_timestamp(ts)
-                                                        if normalized_ts in stored_lrc_normalized:
-                                                            lrc_data = stored_lrc_normalized[normalized_ts]
-                                                            LRL_list.append(lrc_data.get('lrl_value') if lrc_data.get('lrl_value') is not None else np.nan)
-                                                            UCL_list.append(lrc_data.get('ucl_value') if lrc_data.get('ucl_value') is not None else np.nan)
-                                                            LCL_list.append(lrc_data.get('lcl_value') if lrc_data.get('lcl_value') is not None else np.nan)
-                                                        else:
-                                                            LRL_list.append(np.nan)
-                                                            UCL_list.append(np.nan)
-                                                            LCL_list.append(np.nan)
-                                                    
-                                                    LRL = np.array(LRL_list)
-                                                    UCL = np.array(UCL_list)
-                                                    LCL = np.array(LCL_list)
-                                                    logger.info(f"[PROCESS] symbol={symbol} interval={interval} conditionID={conditionID} cond={cond} | Step 8: LRC calculated and stored (fallback path)")
-                                                else:
-                                                    logger.warning(f"[PROCESS] symbol={symbol} interval={interval} conditionID={conditionID} cond={cond} | Step 8: LRC calculated but stored_lrc is empty after fetch")
+                                                logger.info(f"[PROCESS] symbol={symbol} interval={interval} conditionID={conditionID} cond={cond} | Step 8: LRC calculated and stored (fallback path - direct assignment)")
                                             else:
+                                                # Calculate LRC on window only
+                                                LRL_window, UCL_window, LCL_window, _ = await calc_lrc_async(close_window, lrc_period, lrc_stdev)
+                                                
                                                 # Pad arrays to match full dataset length
                                                 if window_size < len(data_combined):
                                                     padding_size = len(data_combined) - window_size
@@ -2080,15 +2087,47 @@ class RedisAlertEngine:
                                 # Normalize last_checked_ts to timezone-naive
                                 last_checked_ts = normalize_to_naive(last_checked_ts)
                                 
+                                # ✅ CRITICAL FIX: Always check the most recent closed candle to avoid delays
+                                # Find the most recent candle first
+                                most_recent_candle_ts = None
+                                most_recent_candle_idx = None
+                                
                                 for i in range(len(dates_pd)):
-                                    # DatetimeIndex is directly indexable, no need for .iloc
                                     candle_ts_raw = dates_pd[i]
                                     candle_ts = normalize_to_naive(candle_ts_raw)
                                     
-                                    # Safe comparison (all timestamps are now timezone-naive)
-                                    # Only check if: 1) newer than last_checked_ts AND 2) within time window
+                                    # Track the most recent candle
+                                    if most_recent_candle_ts is None or candle_ts > most_recent_candle_ts:
+                                        most_recent_candle_ts = candle_ts
+                                        most_recent_candle_idx = i
+                                
+                                # ✅ ALWAYS check the most recent candle if it's within the last 10 minutes
+                                # This ensures immediate alert delivery regardless of last_checked_ts
+                                # We use 10 minutes to cover all timeframes (1min, 5min, 15min, etc.)
+                                recent_candle_window_minutes = 10  # Check most recent candle if within last 10 minutes
+                                if most_recent_candle_idx is not None and most_recent_candle_ts is not None:
+                                    time_since_most_recent = (current_time_naive - most_recent_candle_ts).total_seconds() / 60  # minutes
+                                    
+                                    if time_since_most_recent <= recent_candle_window_minutes and most_recent_candle_ts >= max_age_cutoff:
+                                        candles_to_check_indices.append(most_recent_candle_idx)
+                                        logger.info(f"[PROCESS] symbol={symbol} interval={interval} | ✅ Always checking most recent candle {most_recent_candle_ts} (age: {time_since_most_recent:.1f}min, last_checked: {last_checked_ts})")
+                                
+                                # Also check any candles > last_checked_ts (to catch any we might have missed)
+                                # Note: We use > (not >=) to avoid re-checking the same candle unnecessarily
+                                # But the most recent candle is always checked above regardless
+                                for i in range(len(dates_pd)):
+                                    if i in candles_to_check_indices:
+                                        continue  # Skip if already added
+                                        
+                                    candle_ts_raw = dates_pd[i]
+                                    candle_ts = normalize_to_naive(candle_ts_raw)
+                                    
+                                    # Check if: 1) > last_checked_ts AND 2) within time window
                                     if candle_ts > last_checked_ts and candle_ts >= max_age_cutoff:
                                         candles_to_check_indices.append(i)
+                                
+                                # Sort indices to process in chronological order
+                                candles_to_check_indices = sorted(set(candles_to_check_indices))
                                 
                                 if candles_to_check_indices:
                                     oldest_ts = dates_pd[candles_to_check_indices[0]] if candles_to_check_indices else None
@@ -2100,6 +2139,11 @@ class RedisAlertEngine:
                             # Track the latest timestamp we'll check (for updating last_checked_ts)
                             latest_checked_ts = last_checked_ts
                             candles_processed = 0
+                            
+                            # Find the most recent candle timestamp (for buffer calculation)
+                            most_recent_candle_in_data = None
+                            if len(dates_combined) > 0:
+                                most_recent_candle_in_data = pd.to_datetime(dates_combined[-1])
                             
                             # Check each unprocessed candle
                             for i in candles_to_check_indices:
@@ -2273,56 +2317,73 @@ class RedisAlertEngine:
                                     if lrc_filter_enabled and lrc_filter_type:
                                         # Only check if LRC arrays are available and not None
                                         if LRL is not None and UCL is not None and LCL is not None:
-                                        if i < len(LRL) and i < len(UCL) and i < len(LCL):
-                                            lrl_value = LRL[i]
-                                            ucl_value = UCL[i]
-                                            lcl_value = LCL[i]
-                                            
-                                            if not (np.isnan(lrl_value) or np.isnan(ucl_value) or np.isnan(lcl_value)):
-                                                middle_lrc = (ucl_value + lcl_value) / 2  # Middle LRC line
+                                            if i < len(LRL) and i < len(UCL) and i < len(LCL):
+                                                lrl_value = LRL[i]
+                                                ucl_value = UCL[i]
+                                                lcl_value = LCL[i]
                                                 
-                                                if lrc_filter_type == 'middle' or lrc_filter_type == 1:
-                                                    # Check: high < middle_LRC
-                                                    if not (high_ha < middle_lrc):
-                                                        failure_reasons.append(f"High {high_ha:.2f} not below middle LRC {middle_lrc:.2f}")
-                                                        result_status = "REJECTED"
-                                                        result_reason = failure_reasons[-1]
-                                                        logger.info(
-                                                            f"[ALERT_CHECK] symbol={symbol} timeframe={interval} timestamp={alert_timestamp_str} | "
-                                                            f"High_HA={high_ha:.2f} Middle_LRC={middle_lrc:.2f} | "
-                                                            f"RESULT: {result_status} | REASON: {result_reason}"
-                                                        )
-                                                        continue
-                                                elif lrc_filter_type == 'lower' or lrc_filter_type == 2:
-                                                    # Check: high < lower_LRC
-                                                    if not (high_ha < lcl_value):
-                                                        failure_reasons.append(f"High {high_ha:.2f} not below lower LRC {lcl_value:.2f}")
-                                                        result_status = "REJECTED"
-                                                        result_reason = failure_reasons[-1]
-                                                        logger.info(
-                                                            f"[ALERT_CHECK] symbol={symbol} timeframe={interval} timestamp={alert_timestamp_str} | "
-                                                            f"High_HA={high_ha:.2f} Lower_LRC={lcl_value:.2f} | "
-                                                            f"RESULT: {result_status} | REASON: {result_reason}"
-                                                        )
-                                                        continue
+                                                # ✅ FIX: Check if we have enough candles for LRC calculation
+                                                # LRC needs at least 'lrc_period' candles, so first (lrc_period - 1) values will be NaN
+                                                # Only reject if NaN occurs when we should have valid data
+                                                min_required_index = (lrc_period - 1) if (lrc_period and lrc_period > 0) else 0
+                                                
+                                                if i < min_required_index:
+                                                    # This is expected - not enough candles yet for LRC calculation
+                                                    logger.debug(
+                                                        f"[ALERT_CHECK] symbol={symbol} timeframe={interval} timestamp={alert_timestamp_str} | "
+                                                        f"LRC not available yet (index {i} < required {min_required_index}, need {lrc_period} candles) - skipping LRC filter check"
+                                                    )
+                                                    # Continue without LRC filter check (allow alert to proceed)
+                                                elif np.isnan(lrl_value) or np.isnan(ucl_value) or np.isnan(lcl_value):
+                                                    # NaN when we should have valid data - REJECT ALERT (strict enforcement)
+                                                    # This means LRC data is unavailable even after recalculation attempts
+                                                    failure_reasons.append("LRC values are NaN (data unavailable or calculation failed)")
+                                                    result_status = "REJECTED"
+                                                    result_reason = failure_reasons[-1]
+                                                    logger.error(
+                                                        f"[ALERT_CHECK] symbol={symbol} timeframe={interval} timestamp={alert_timestamp_str} | "
+                                                        f"LRC values are NaN at index {i} (array length={len(LRL)}, min_required_index={min_required_index}, lrc_period={lrc_period}) | "
+                                                        f"Timestamp lookup: alert_ts='{alert_timestamp_str}', dates_str[{i}]='{dates_str[i] if i < len(dates_str) else 'OUT_OF_RANGE'}' | "
+                                                        f"RESULT: {result_status} | REASON: {result_reason}"
+                                                    )
+                                                    continue  # Reject alert - LRC must be precise
+                                                else:
+                                                    # Valid LRC values - perform filter check
+                                                    middle_lrc = (ucl_value + lcl_value) / 2  # Middle LRC line
+                                                    
+                                                    if lrc_filter_type == 'middle' or lrc_filter_type == 1:
+                                                        # Check: high < middle_LRC
+                                                        if not (high_ha < middle_lrc):
+                                                            failure_reasons.append(f"High {high_ha:.2f} not below middle LRC {middle_lrc:.2f}")
+                                                            result_status = "REJECTED"
+                                                            result_reason = failure_reasons[-1]
+                                                            logger.info(
+                                                                f"[ALERT_CHECK] symbol={symbol} timeframe={interval} timestamp={alert_timestamp_str} | "
+                                                                f"High_HA={high_ha:.2f} Middle_LRC={middle_lrc:.2f} | "
+                                                                f"RESULT: {result_status} | REASON: {result_reason}"
+                                                            )
+                                                            continue
+                                                    elif lrc_filter_type == 'lower' or lrc_filter_type == 2:
+                                                        # Check: high < lower_LRC
+                                                        if not (high_ha < lcl_value):
+                                                            failure_reasons.append(f"High {high_ha:.2f} not below lower LRC {lcl_value:.2f}")
+                                                            result_status = "REJECTED"
+                                                            result_reason = failure_reasons[-1]
+                                                            logger.info(
+                                                                f"[ALERT_CHECK] symbol={symbol} timeframe={interval} timestamp={alert_timestamp_str} | "
+                                                                f"High_HA={high_ha:.2f} Lower_LRC={lcl_value:.2f} | "
+                                                                f"RESULT: {result_status} | REASON: {result_reason}"
+                                                            )
+                                                            continue
                                             else:
-                                                failure_reasons.append("LRC values are NaN")
+                                                failure_reasons.append("LRC data index out of range")
                                                 result_status = "REJECTED"
                                                 result_reason = failure_reasons[-1]
                                                 logger.warning(
                                                     f"[ALERT_CHECK] symbol={symbol} timeframe={interval} timestamp={alert_timestamp_str} | "
                                                     f"RESULT: {result_status} | REASON: {result_reason}"
-                                            )
-                                            continue
-                                        else:
-                                            failure_reasons.append("LRC data index out of range")
-                                            result_status = "REJECTED"
-                                            result_reason = failure_reasons[-1]
-                                            logger.warning(
-                                                f"[ALERT_CHECK] symbol={symbol} timeframe={interval} timestamp={alert_timestamp_str} | "
-                                                f"RESULT: {result_status} | REASON: {result_reason}"
-                                            )
-                                            continue
+                                                )
+                                                continue
                                         else:
                                             # LRC filter enabled but no LRC data available - skip filter check (don't reject alert)
                                             logger.warning(
@@ -2541,7 +2602,18 @@ class RedisAlertEngine:
                             # Only update if we actually processed candles (prevents unnecessary Redis writes)
                             if candles_processed > 0 and latest_checked_ts is not None:
                                 try:
-                                    latest_checked_ts_str = latest_checked_ts.strftime('%Y-%m-%d %H:%M:%S')
+                                    # ✅ FIX: If we checked the most recent candle, subtract 1 minute buffer
+                                    # This ensures we always re-check the most recent candle on the next run
+                                    # (since we always check candles within 10 minutes, this buffer ensures re-checking)
+                                    ts_to_save = latest_checked_ts
+                                    if most_recent_candle_in_data is not None:
+                                        time_diff = (most_recent_candle_in_data - latest_checked_ts).total_seconds()
+                                        # If the checked candle is the most recent (or very close), subtract 1 minute buffer
+                                        if abs(time_diff) < 120:  # Within 2 minutes of most recent
+                                            ts_to_save = latest_checked_ts - pd.Timedelta(minutes=1)
+                                            logger.debug(f"[ALERT_CHECK] Adjusted last_checked_ts by -1min buffer for {symbol} {interval} (most recent candle: {most_recent_candle_in_data})")
+                                    
+                                    latest_checked_ts_str = ts_to_save.strftime('%Y-%m-%d %H:%M:%S')
                                     await redis_client.hset(alert_check_key, mapping={
                                         'last_checked_ts': latest_checked_ts_str,
                                         'last_check_time': datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S'),

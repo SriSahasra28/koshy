@@ -27,14 +27,14 @@ async def set_ttl_safe(redis_client, key, ttl=30*24*60*60):
     except Exception:
         pass  # TTL failure is non-critical
 
-# --- Logging setup using loguru (OPTIMIZED: Console only, no file logging for performance) ---
+# --- Logging setup using loguru (Console + File for scheduled runs) ---
 def _setup_logging():
-    """Setup loguru logger - console only (file logging removed for performance)"""
+    """Setup loguru logger - console + file logging for scheduled runs"""
     try:
         # Remove default handler
         logger.remove()
         
-        # Add console handler only (file logging removed to reduce I/O bottleneck)
+        # Add console handler
         logger.add(
             sys.stdout,
             level="INFO",
@@ -42,7 +42,21 @@ def _setup_logging():
             colorize=True
         )
         
-        logger.info("main-consumer logging initialized (console only - file logging disabled for performance)")
+        # Add file handler for scheduled runs (rotates daily, keeps 30 days)
+        log_file = "main_consumer.log"
+        logger.add(
+            log_file,
+            level="INFO",
+            format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
+            rotation="00:00",  # Rotate at midnight
+            retention="30 days",  # Keep 30 days of logs
+            compression="zip",  # Compress old logs
+            enqueue=True,  # Thread-safe logging
+            backtrace=False,  # Disable backtrace for performance
+            diagnose=False  # Disable diagnose for performance
+        )
+        
+        logger.info(f"main-consumer logging initialized (console + file: {log_file})")
     except Exception as e:
         # Fallback to basic console logging if setup fails
         logger.add(sys.stdout, level="INFO")

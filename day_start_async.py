@@ -707,6 +707,110 @@ async def update_symbols_to_monitor():
                 instrument_type = row['instrument_type']
                 print(f"{instrument_token}, {tradingsymbol}, {expiry=}, {strike=}, {instrument_type=}")
                 await db.insert_into_monitor_symbols(instrument_token, tradingsymbol, expiry, strike, instrument_type, ltp, main_symbol)
+    
+    # ✅ NEW: Also add symbols from filter_options (manual selections)
+    try:
+        print('\n📋 [update_symbols_to_monitor] Adding symbols from filter_options (manual selections)...')
+        # Fetch manual entries from filter_options and join with instruments to get strike and instrument_type
+        query_filter_options = """
+            SELECT 
+                fo.symbol as stock_symbol,
+                fo.option_name as tradingsymbol,
+                fo.expiry,
+                fo.instrument_token,
+                i.strike,
+                i.instrument_type,
+                i.name as instrument_name
+            FROM filter_options fo
+            INNER JOIN instruments i ON fo.instrument_token = i.instrument_token
+            WHERE fo.mode = 'MAN'
+                AND i.expiry >= CURDATE()
+                AND i.instrument_type IN ('CE', 'PE', 'FUT')
+        """
+        df_filter_options = await db.get_data(query_filter_options)
+        
+        if not df_filter_options.empty:
+            print(f"   Found {len(df_filter_options)} manual entries in filter_options")
+            
+            # Get unique stock symbols for LTP lookup
+            unique_stock_symbols = df_filter_options['stock_symbol'].unique()
+            print(f"   Unique stock symbols: {list(unique_stock_symbols)}")
+            
+            # Map symbol names (NIFTY 50 -> NIFTY, etc.)
+            symbol_mapping = {
+                'NIFTY 50': 'NIFTY',
+                'NIFTY BANK': 'BANKNIFTY',
+                'NIFTY FIN SERVICE': 'FINNIFTY',
+                'NIFTY MIDCAP 50': 'MIDCPNIFTY'
+            }
+            
+            # Get LTP for all unique stock symbols (map symbols first)
+            ltp_symbols = []
+            symbol_to_mapped = {}
+            for stock_symbol in unique_stock_symbols:
+                mapped_symbol = symbol_mapping.get(stock_symbol, stock_symbol)
+                symbol_to_mapped[stock_symbol] = mapped_symbol
+                ltp_symbols.append('NSE:' + mapped_symbol)
+            
+            df_ltp_filter = zerodha.getLTPMulti(ltp_symbols) if ltp_symbols else {}
+            
+            # Process each filter_options entry
+            added_count = 0
+            skipped_count = 0
+            
+            for index, row in df_filter_options.iterrows():
+                try:
+                    stock_symbol = row['stock_symbol']
+                    tradingsymbol = row['tradingsymbol']
+                    expiry = row['expiry']
+                    instrument_token = row['instrument_token']
+                    strike = float(row['strike']) if row['strike'] is not None else 0.0
+                    instrument_type = row['instrument_type']
+                    
+                    # Map symbol for LTP lookup
+                    mapped_symbol = symbol_to_mapped.get(stock_symbol, stock_symbol)
+                    ltp_key = 'NSE:' + mapped_symbol
+                    # df_ltp_filter is a dict where keys are like 'NSE:NIFTY', values are dicts with 'last_price'
+                    if ltp_key in df_ltp_filter and isinstance(df_ltp_filter[ltp_key], dict):
+                        ltp = df_ltp_filter[ltp_key].get('last_price')
+                    else:
+                        ltp = None
+                    
+                    # LTP will be None if not available (will be updated later by live ticks)
+                    if ltp is None:
+                        print(f"   ⚠️  No LTP for {stock_symbol}, using None (will be updated by live ticks)")
+                    
+                    # Format expiry as string
+                    if isinstance(expiry, pd.Timestamp):
+                        expiry_str = expiry.strftime('%Y-%m-%d')
+                    else:
+                        expiry_str = str(expiry)
+                    
+                    print(f"   ➕ Adding: {tradingsymbol} (token: {instrument_token}, expiry: {expiry_str}, strike: {strike}, type: {instrument_type}, LTP: {ltp})")
+                    await db.insert_into_monitor_symbols(
+                        instrument_token, 
+                        tradingsymbol, 
+                        expiry_str, 
+                        strike, 
+                        instrument_type, 
+                        ltp, 
+                        stock_symbol
+                    )
+                    added_count += 1
+                except Exception as e:
+                    print(f"   ❌ Error processing filter_options entry {row.get('tradingsymbol', 'unknown')}: {e}")
+                    skipped_count += 1
+                    continue
+            
+            print(f"   ✅ Added {added_count} symbols from filter_options, skipped {skipped_count}")
+        else:
+            print("   ℹ️  No manual entries found in filter_options")
+    except Exception as e:
+        print(f"   ⚠️  Error adding symbols from filter_options (non-fatal): {e}")
+        # Don't fail the entire function if filter_options processing fails
+        import traceback
+        traceback.print_exc()
+    
     return 1, 'None', 1
 
 async def process_option(symbol, ltp, option_type, main_symbol, next_month=False):

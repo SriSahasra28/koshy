@@ -42,7 +42,7 @@ async def test_telegram_direct():
     print("="*60)
     
     bot_token = '8213206702:AAGRu6r0ag2zjbvT8TyoBGBq0gx_I05uH6o'
-    chat_ids = ['@koshy_alerts', '1367653901']  # Channel and personal chat
+    chat_ids = ['@koshy_alerts', '1367653901', '5210270840']  # Channel and personal chat IDs
     
     # Test message (use regular dash instead of em dash to avoid markdown parsing issues)
     test_stock = "TEST_SYMBOL"

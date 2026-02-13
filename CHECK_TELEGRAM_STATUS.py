@@ -71,8 +71,9 @@ def check_telegram_delivery():
         print("  Bot Token: 8213206702:AAGRu6r0ag2zjbvT8TyoBGBq0gx_I05uH6o")
         print("  Chat IDs:")
         print("    1. @koshy_alerts (channel)")
-        print("    2. 1367653901 (your personal chat)")
-        print("\n[NOTE] Both chat IDs should receive messages")
+        print("    2. 1367653901 (personal chat)")
+        print("    3. 5210270840 (personal chat)")
+        print("\n[NOTE] All chat IDs should receive messages")
         
         # Show today's alerts
         print("\n" + "="*80)
