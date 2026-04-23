@@ -61,12 +61,15 @@ _setup_logging()
 
 async def send_telegram_message(stock, price, date, time, tf, sn):
     """Format and send a message to Telegram chats (channel + personal) via the bot with only 'Alert' in bold."""
+    # Escape underscores in dynamic values — Telegram Markdown treats _ as italic
+    stock = str(stock).replace('_', r'\_')
+    sn = str(sn).replace('_', r'\_')
     # Only 'Alert' is formatted as bold
     # Check if it's a crypto symbol (contains USDT)
     if 'USDT' in stock:
-        message = f"*Crypto Alert*\nSymbol : {stock}\nPrice : ${price}\nDate : {date}\nTime : {time}\nTF — {tf} min \nSN — {sn}"
+        message = f"*Crypto Alert*\nSymbol : {stock}\nPrice : ${price}\nDate : {date}\nTime : {time}\nTF - {tf} min \nSN - {sn}"
     else:
-        message = f"*Alert*\nStock : {stock}\nPrice : Rs. {price}\nDate : {date}\nTime : {time}\nTF — {tf} min \nSN — {sn}"
+        message = f"*Alert*\nStock : {stock}\nPrice : Rs. {price}\nDate : {date}\nTime : {time}\nTF - {tf} min \nSN - {sn}"
     
     bot_token = '8213206702:AAGRu6r0ag2zjbvT8TyoBGBq0gx_I05uH6o'
     # Send to both channel and personal chat
