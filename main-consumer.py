@@ -350,7 +350,23 @@ async def store_resampled_data_in_redis(redis_client, symbol, interval, df, only
 
 
 def should_process_timeframe(current_time, interval):
-    """Decide processing based on the last fully completed candle timestamp; no seconds gate."""
+    """Decide whether to process a timeframe for the just-finalized 1-min candle.
+
+    Timeline:
+      tick_zerodha finalizes the 1-min candle at minute T (e.g. 15:14) and
+      immediately pushes its token to ohlc_ready.  main-consumer receives the
+      push when current_time ≈ T+1min (e.g. 15:15:0x).
+
+      last_closed  = current_time floored to minute - 1min  → T  (15:14)
+      minutes_since_start = (T - 09:15) in minutes           → 359  (for T=15:14)
+
+    For an N-min candle the last 1-min bar lands at offset (k*N - 1) from 09:15.
+    So the correct trigger condition is:
+        (minutes_since_start + 1) % interval_minutes == 0
+
+    Example (5min): 359 + 1 = 360, 360 % 5 = 0  ✅  triggers immediately
+    Old (buggy) check: 359 % 5 = 4  ✗  delayed until T+2 (15:16)
+    """
     # Market hours (inclusive) 09:16–15:30 for completed candles
     if current_time.hour < 9 or (current_time.hour == 9 and current_time.minute < 16):
         return False
@@ -370,12 +386,15 @@ def should_process_timeframe(current_time, interval):
     if not interval_minutes:
         return False
 
+    # last_closed = the candle that was JUST finalized and pushed to ohlc_ready
     last_closed = current_time.replace(second=0, microsecond=0) - pd.Timedelta(minutes=1)
     day_start = last_closed.replace(hour=9, minute=15, second=0, microsecond=0)
     if last_closed < day_start:
         return False
     minutes_since_start = int((last_closed - day_start).total_seconds() // 60)
-    return minutes_since_start % interval_minutes == 0
+    # +1 because last_closed is the LAST bar of the N-min block, not the first.
+    # (k*N - 1) offset from start → (minutes_since_start + 1) is divisible by N.
+    return (minutes_since_start + 1) % interval_minutes == 0
 
 
 
@@ -457,6 +476,17 @@ async def main():
             # Continue with empty token_map - system can still run but won't process anything
         else:
             logger.info(f"[STARTUP] Created {len(token_map)} token mappings")
+            # --- DIAGNOSTIC: show which basket_ids are in filter_options vs timeframes ---
+            filter_basket_ids = set(df_priority_stocks['basket_id'].unique())
+            timeframe_basket_ids = set(df_basket_timeframes['basket_id'].unique()) if not df_basket_timeframes.empty else set()
+            missing_basket_ids = filter_basket_ids - timeframe_basket_ids
+            logger.info(f"[STARTUP][DIAG] filter_options basket_ids: {filter_basket_ids}")
+            logger.info(f"[STARTUP][DIAG] timeframes (active scans) basket_ids: {timeframe_basket_ids}")
+            if missing_basket_ids:
+                missing_symbols = df_priority_stocks[df_priority_stocks['basket_id'].isin(missing_basket_ids)]['symbol'].tolist()
+                logger.warning(f"[STARTUP][DIAG] *** BASKET_ID MISMATCH *** These basket_ids have symbols in filter_options but NO active scan configured: {missing_basket_ids}")
+                logger.warning(f"[STARTUP][DIAG] Affected symbols (will NOT be scanned): {missing_symbols}")
+                logger.warning(f"[STARTUP][DIAG] FIX: Go to /scan page, ensure the scan for these groups is active=1 and has active ScanItems with timeframes enabled.")
         
         config_tables = {
             'df_scan_items': df_scan_items,
@@ -989,7 +1019,122 @@ async def main():
             except Exception as e:
                 logger.error(f"[INC-RESAMPLE][ERROR] symbol={symbol} interval={interval} err={e}")
 
+
+        # ── Hot-reload: listen for new symbols added via the Filter page ─────────
+        # When the Node server saves a symbol to filter_options it publishes a
+        # { instrument_token, symbol, basket_id } event on the 'new_symbol' channel.
+        # We insert it directly into token_map so the main loop picks it up
+        # without requiring a restart of main-consumer.py.
+        async def hot_reload_new_symbols():
+            import redis.asyncio as _aioredis
+            hot_client = _aioredis.from_url('redis://localhost', decode_responses=True)
+            pubsub = hot_client.pubsub()
+            await pubsub.subscribe('new_symbol')
+            logger.info('[HOT-RELOAD][CONSUMER] Subscribed to new_symbol channel')
+            async for message in pubsub.listen():
+                if message['type'] != 'message':
+                    continue
+                try:
+                    data = json.loads(message['data'])
+                    token = int(data.get('instrument_token', 0))
+                    symbol = str(data.get('option_name', ''))
+                    basket_id = int(data.get('basket_id', 0))
+                    if not token or not symbol or not basket_id:
+                        continue
+                    # Check if already in token_map
+                    existing = any(
+                        cfg['base_token'] == token for cfg in token_map.values()
+                    )
+                    if existing:
+                        logger.info(f'[HOT-RELOAD][CONSUMER] Token {token} ({symbol}) already in token_map')
+                        continue
+                    # Get timeframes for this basket
+                    filtered_tf = df_basket_timeframes[df_basket_timeframes.basket_id == basket_id] \
+                        if not df_basket_timeframes.empty else pd.DataFrame()
+                    timeframe_configs = {
+                        'minute': ('1min', '1minute'),
+                        '2min': ('2min', '2minute'),
+                        '3min': ('3min', '3minute'),
+                        '5min': ('5min', '5minute'),
+                        '10min': ('10min', '10minute'),
+                        '15min': ('15min', '15minute'),
+                        '30min': ('30min', '30minute'),
+                        '60min': ('60min', '60minute'),
+                    }
+                    added = 0
+                    for tf_key, (col_name, interval_name) in timeframe_configs.items():
+                        is_enabled = False
+                        if not filtered_tf.empty and col_name in filtered_tf.columns:
+                            is_enabled = bool(filtered_tf[col_name].any())
+                        else:
+                            # Default: enable 1min if no timeframe config found
+                            is_enabled = (tf_key == 'minute')
+                        if is_enabled:
+                            map_key = str(token) if tf_key == 'minute' else f'{token}_{tf_key}'
+                            token_map[map_key] = {
+                                'symbol': symbol,
+                                'interval': interval_name,
+                                'basket_id': basket_id,
+                                'base_token': token,
+                                'timeframe_key': tf_key,
+                                'interval_mins': _interval_minutes(interval_name),
+                            }
+                            added += 1
+                    # Also update Redis symbol<->token maps
+                    await redis_client.hset('symbol_to_token', symbol, token)
+                    await redis_client.hset('token_to_symbol', str(token), symbol)
+                    logger.info(
+                        f'[HOT-RELOAD][CONSUMER] Added {symbol} (token {token}) to token_map '
+                        f'with {added} timeframe(s). token_map size: {len(token_map)}'
+                    )
+                except Exception as hr_err:
+                    logger.error(f'[HOT-RELOAD][CONSUMER] Error processing new_symbol event: {hr_err}')
+
+        # ── Hot-reload: listen for scan config changes (enable/disable/add/delete) ──
+        # When the Node server modifies scans or scanitems it publishes an event
+        # on the 'scan_config_changed' channel.  We reload df_scan_items,
+        # df_scan_names, and df_conditions from the database so the alert engine
+        # picks up the change immediately without a restart.
+        async def hot_reload_scan_config():
+            import redis.asyncio as _aioredis
+            hot_client = _aioredis.from_url('redis://localhost', decode_responses=True)
+            pubsub = hot_client.pubsub()
+            await pubsub.subscribe('scan_config_changed')
+            logger.info('[HOT-RELOAD][SCAN-CONFIG] Subscribed to scan_config_changed channel')
+            async for message in pubsub.listen():
+                if message['type'] != 'message':
+                    continue
+                try:
+                    data = json.loads(message['data'])
+                    change_type = data.get('type', 'unknown')
+                    logger.info(f'[HOT-RELOAD][SCAN-CONFIG] Received {change_type} event — reloading scan config from DB')
+
+                    # Reload scan tables from the database
+                    new_scan_items = await db.get_scan_items()
+                    new_scan_names = await db.get_scan_names()
+                    new_conditions = await db.get_conditions()
+
+                    # Update the alert engine's in-memory DataFrames
+                    alert_engine.df_scan_items = new_scan_items
+                    alert_engine.df_scan_names = new_scan_names
+                    alert_engine.df_conditions = new_conditions
+
+                    logger.info(
+                        f'[HOT-RELOAD][SCAN-CONFIG] Reloaded: '
+                        f'{len(new_scan_items)} scan items, '
+                        f'{len(new_scan_names)} scan names, '
+                        f'{len(new_conditions)} conditions'
+                    )
+                except Exception as hr_err:
+                    logger.error(f'[HOT-RELOAD][SCAN-CONFIG] Error reloading scan config: {hr_err}')
+
+        # Launch hot-reload listeners as background asyncio tasks
+        asyncio.ensure_future(hot_reload_new_symbols())
+        asyncio.ensure_future(hot_reload_scan_config())
+        logger.info('[HOT-RELOAD][CONSUMER] Hot-reload listener tasks launched (new_symbol + scan_config)')
+
         logger.info("[MAIN_LOOP] Starting main processing loop")
+
         while True:
             try:
                 # Block for at least one token, then drain the queue burst
@@ -1010,7 +1155,7 @@ async def main():
                     except Exception:
                         continue
                 
-                logger.info(f"[MAIN_LOOP] Received {len(tokens_to_consider)} token(s) from ohlc_ready queue")
+                logger.info(f"[MAIN_LOOP] Received {len(tokens_to_consider)} token(s) from ohlc_ready queue: {tokens_to_consider}")
 
                 current_time = datetime.now()
                 # Minute boundary separator (once per new minute)
@@ -1022,6 +1167,13 @@ async def main():
                 except Exception:
                     pass
 
+                # --- DIAGNOSTIC: log token_map keys so we can confirm which tokens are registered ---
+                token_map_base_tokens = set(v['base_token'] for v in token_map.values())
+                unregistered = tokens_to_consider - token_map_base_tokens
+                if unregistered:
+                    logger.warning(f"[MAIN_LOOP][DIAG] tokens NOT in token_map (no scan configured?): {unregistered}")
+                    logger.warning(f"[MAIN_LOOP][DIAG] token_map has {len(token_map)} entries covering base tokens: {token_map_base_tokens}")
+
                 # Determine matching symbol:timeframe combinations
                 matching_combinations = []
                 for token_key, config in token_map.items():
@@ -1031,25 +1183,28 @@ async def main():
 
                     interval = config['interval']
                     if not should_process_timeframe(current_time, interval):
+                        logger.debug(f"[MAIN_LOOP][DIAG] Skipping {config['symbol']} {interval}: outside market hours or not aligned yet (time={current_time.strftime('%H:%M:%S')})")
                         continue
 
                     # Compute last closed candle timestamp aligned to interval
                     last_closed = current_time.replace(second=0, microsecond=0) - pd.Timedelta(minutes=1)
                     day_start = last_closed.replace(hour=9, minute=15, second=0, microsecond=0)
                     if last_closed < day_start:
+                        logger.debug(f"[MAIN_LOOP][DIAG] Skipping {config['symbol']} {interval}: last_closed {last_closed} < day_start {day_start}")
                         continue
                     
                     interval_mins = _interval_minutes(interval)
                     if not interval_mins:
                         continue
                     
-                    # Check alignment
                     minutes_since_start = int((last_closed - day_start).total_seconds() // 60)
-                    if minutes_since_start % interval_mins != 0:
+                    if (minutes_since_start + 1) % interval_mins != 0:
+                        logger.debug(f"[MAIN_LOOP][DIAG] Skipping {config['symbol']} {interval}: alignment miss. minutes_since_start={minutes_since_start}, interval_mins={interval_mins}, (mss+1)%N={(minutes_since_start+1)%interval_mins}")
                         continue
 
                     key = (base_token, interval)
                     if last_processed.get(key) == last_closed:
+                        logger.debug(f"[MAIN_LOOP][DIAG] Skipping {config['symbol']} {interval}: already processed at {last_closed}")
                         continue
 
                     last_processed[key] = last_closed
@@ -1063,6 +1218,8 @@ async def main():
                     })
                 
                 if not matching_combinations:
+                    if token_map_base_tokens & tokens_to_consider:
+                        logger.info(f"[MAIN_LOOP] Tokens {tokens_to_consider & token_map_base_tokens} are in token_map but no timeframes matched (alignment check or already processed). Time={current_time.strftime('%H:%M:%S')}")
                     continue
                 
                 logger.info(f"[MAIN_LOOP] Found {len(matching_combinations)} symbol:timeframe combinations to process")
@@ -1152,6 +1309,10 @@ async def main():
                         logger.error(f"[ALERT][ERROR] {m['symbol']}:{m['interval']}: {e}")
                         return None
                 
+                # Sort by interval ascending so shorter TFs (1min) are processed first.
+                # This ensures time-sensitive alerts aren't delayed behind longer TF work.
+                matching_combinations.sort(key=lambda m: m['interval_mins'])
+                
                 BATCH_SIZE = 30
                 total_batches = (len(matching_combinations) + BATCH_SIZE - 1) // BATCH_SIZE
                 
@@ -1180,6 +1341,7 @@ async def main():
                         if isinstance(result, Exception):
                             task_info = batch_info[idx] if idx < len(batch_info) else f"task_{idx}"
                             logger.error(f"[BATCH][ERROR] Batch {batch_num} task {task_info}: {result}")
+
                 
                 # Trim last_processed map to avoid unbounded growth
                 if len(last_processed) > 5000:
