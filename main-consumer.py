@@ -425,9 +425,9 @@ def resample_ohlc_data(df, interval_minutes):
         df_resample.set_index('timestamp', inplace=True)
         
         # Resample aligned to 09:15 using origin/offset; completed candles only
-        # Use label='left' to represent candles by START time (consistent with 1-minute)
+        # closed='left': candle labeled 09:15 contains {09:15, 09:16, 09:17} (matches chart JS grouping)
         resampled = df_resample.resample(
-            f'{interval_minutes}min', origin='start_day', offset='15min', label='left', closed='right'
+            f'{interval_minutes}min', origin='start_day', offset='15min', label='left', closed='left'
         ).agg({
             'open': 'first',
             'high': 'max',

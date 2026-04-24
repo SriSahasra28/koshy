@@ -23,6 +23,10 @@ UTC = pytz.timezone("UTC")
 _TELEGRAM_BOT = None
 _TELEGRAM_BOT_LOCK = asyncio.Lock()  # Lock for thread-safe bot initialization
 
+# Async alert delivery queue — decouples DB insert + Telegram + Redis publish from main loop
+_ALERT_DELIVERY_QUEUE = None  # Initialized lazily on first use
+_ALERT_DELIVERY_TASK = None   # Background consumer task
+
 # Helper function for safe TTL setting
 async def set_ttl_safe(redis_client, key, ttl=30*24*60*60):
     """Set TTL on key, silently ignore errors (non-critical operation)"""
@@ -30,6 +34,151 @@ async def set_ttl_safe(redis_client, key, ttl=30*24*60*60):
         await redis_client.expire(key, ttl)
     except Exception:
         pass  # TTL failure is non-critical
+
+async def _ensure_alert_queue():
+    """Lazily initialize the alert delivery queue and start background consumer."""
+    global _ALERT_DELIVERY_QUEUE, _ALERT_DELIVERY_TASK
+    if _ALERT_DELIVERY_QUEUE is None:
+        _ALERT_DELIVERY_QUEUE = asyncio.Queue()
+        _ALERT_DELIVERY_TASK = asyncio.create_task(_alert_delivery_consumer())
+        logger.info("[ALERT_QUEUE] Alert delivery queue initialized with background consumer")
+    return _ALERT_DELIVERY_QUEUE
+
+
+async def _alert_delivery_consumer():
+    """Background consumer that processes alert deliveries (DB insert, Telegram, Redis publish).
+    Runs forever, draining the queue without blocking the main processing loop."""
+    logger.info("[ALERT_QUEUE] Background alert delivery consumer started")
+    while True:
+        try:
+            alert_job = await _ALERT_DELIVERY_QUEUE.get()
+            try:
+                await _process_alert_delivery(alert_job)
+            except Exception as e:
+                logger.error(f"[ALERT_QUEUE] Error processing alert delivery: {e}")
+            finally:
+                _ALERT_DELIVERY_QUEUE.task_done()
+        except asyncio.CancelledError:
+            logger.info("[ALERT_QUEUE] Alert delivery consumer cancelled")
+            break
+        except Exception as e:
+            logger.error(f"[ALERT_QUEUE] Unexpected error in consumer loop: {e}")
+            await asyncio.sleep(0.1)
+
+
+async def _process_alert_delivery(job):
+    """Execute the actual alert delivery work: DB insert → Telegram → Redis publish."""
+    db = job['db']
+    redis_client = job['redis_client']
+    exchange_code = job['exchange_code']
+    alert_timestamp = job['alert_timestamp']
+    alert_timestamp_dt = job['alert_timestamp_dt']
+    scanID = job['scanID']
+    digit_name = job['digit_name']
+    conditionID = job['conditionID']
+    close_ha = job['close_ha']
+    scan_name = job['scan_name']
+    info = job['info']
+    module_name = job['module_name']
+    today = job['today']
+
+    # Step 1: DB inserts with retry
+    max_retries = 3
+    db_success = False
+
+    for attempt in range(max_retries):
+        try:
+            await db.insert_trade_log(
+                date_log=today,
+                module=module_name,
+                activity='Alert Generated',
+                important_data=info,
+                priority=5,
+                strategy_trade_id='',
+                timestamp=datetime.now()
+            )
+            alert_success = await db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name, datetime.now(), conditionID)
+            if alert_success:
+                db_success = True
+                logger.info(f"[ALERT_QUEUE] ✅ DB insert success: {exchange_code} at {alert_timestamp}")
+                break
+            else:
+                logger.warning(f"[ALERT_QUEUE] ❌ DB insert failed for {exchange_code} (attempt {attempt+1}/{max_retries})")
+        except Exception as e:
+            logger.error(f"[ALERT_QUEUE] ❌ DB exception (attempt {attempt+1}/{max_retries}): {e}")
+        if attempt < max_retries - 1:
+            await asyncio.sleep(0.1 * (2 ** attempt))
+
+    if not db_success:
+        logger.error(f"[ALERT_QUEUE] CRITICAL: Failed DB insert after {max_retries} attempts: {exchange_code}")
+        return  # Don't send Telegram/Redis if DB failed
+
+    # Step 2: Telegram (parallel to all chat IDs, already implemented in send_telegram_message)
+    max_telegram_retries = 3
+    telegram_sent = False
+    for attempt in range(max_telegram_retries):
+        try:
+            success = await send_telegram_message(
+                stock=exchange_code,
+                price=round(close_ha, 2),
+                date=alert_timestamp_dt.strftime("%d %b %Y"),
+                time=alert_timestamp_dt.strftime("%H:%M"),
+                tf=digit_name,
+                sn=scan_name
+            )
+            if success:
+                telegram_sent = True
+                break
+        except Exception as e:
+            logger.warning(f"[ALERT_QUEUE] Telegram attempt {attempt+1}/{max_telegram_retries} failed: {e}")
+            if attempt < max_telegram_retries - 1:
+                await asyncio.sleep(0.5 * (attempt + 1))
+    if not telegram_sent:
+        logger.error(f"[ALERT_QUEUE] CRITICAL: Failed Telegram after {max_telegram_retries} attempts for {exchange_code}")
+
+    # Step 3: Redis sorted set + publish
+    try:
+        alert_data = {
+            "symbol": str(exchange_code),
+            "datetime": alert_timestamp_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            "scanid": str(int(scanID)) if pd.notna(scanID) else "0",
+            "timeframe": str(digit_name),
+            "bottime": datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
+            "conditionID": str(int(conditionID)) if pd.notna(conditionID) else "0"
+        }
+
+        sorted_set_key = "Alerts"
+        timestamp_score = datetime.now().timestamp()
+        existing_count = await redis_client.zcount(sorted_set_key, timestamp_score, timestamp_score)
+        if existing_count == 0:
+            await redis_client.zadd(sorted_set_key, {json.dumps(alert_data): timestamp_score})
+        await set_ttl_safe(redis_client, sorted_set_key)
+
+        # Simple alert sorted set
+        try:
+            simple_alert_key = "alerts_simple"
+            candle_timestamp_score = int(alert_timestamp_dt.timestamp())
+            simple_alert_value = f"{exchange_code},{digit_name},{alert_timestamp_dt.strftime('%Y-%m-%d %H:%M:%S')}"
+            existing_count = await redis_client.zcount(simple_alert_key, candle_timestamp_score, candle_timestamp_score)
+            if existing_count == 0:
+                await redis_client.zadd(simple_alert_key, {simple_alert_value: candle_timestamp_score})
+            await set_ttl_safe(redis_client, simple_alert_key)
+        except Exception as simple_err:
+            logger.error(f"[ALERT_QUEUE] Error storing simple alert: {simple_err}")
+
+        # Publish notification
+        alert_notification = {
+            'type': 'info',
+            'message': 'new alert',
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'symbol': exchange_code,
+            'timeframe': digit_name
+        }
+        await redis_client.publish('alerts', json.dumps(alert_notification))
+        logger.info(f"[ALERT_QUEUE] ✅ Full delivery complete: {exchange_code} {digit_name}")
+    except Exception as e:
+        logger.error(f"[ALERT_QUEUE] Error in Redis operations: {e}")
+
 
 # --- Utility functions (copy from your main_redis_remaster.py) ---
 
@@ -85,20 +234,21 @@ async def send_telegram_message(stock, price, date, time, tf, sn):
                 logger.error(f"Error initializing Telegram bot: {e}")
                 return False
     
-    # Send to all chat IDs, return True if at least one succeeds
-    success_count = 0
-    for chat_id in chat_ids:
+    # Send to all chat IDs in PARALLEL, return True if at least one succeeds
+    async def _send_to_chat(chat_id):
         try:
             await _TELEGRAM_BOT.send_message(
                 chat_id=chat_id,
                 text=message,
                 parse_mode=ParseMode.MARKDOWN
             )
-            success_count += 1
+            return True
         except Exception as e:
             logger.error(f"Error sending Telegram message to {chat_id}: {e}")
-    
-    return success_count > 0
+            return False
+
+    results = await asyncio.gather(*[_send_to_chat(cid) for cid in chat_ids])
+    return any(results)
 
     
 async def save_ticker_candle_to_database(ticker, row_data, columns, db, table_name="one_min_ohlc"):
@@ -585,144 +735,30 @@ class RedisAlertEngine:
                 
                 if self.db:
                     module_name = 'alert custom angle' if lrcangletype == 'custom' else 'alert normal angle'
-                    max_retries = 3
-                    db_success = False
-                    
-                    for attempt in range(max_retries):
-                        try:
-                            # Insert trade log
-                            await self.db.insert_trade_log(
-                                date_log=self.today, 
-                                module=module_name, 
-                                activity='Alert Generated', 
-                                important_data=info, 
-                                priority=5, 
-                                strategy_trade_id='', 
-                                timestamp=datetime.now()
-                            )
-                            
-                            # Insert alert with error handling
-                            logger.info(f"[process_alert] Attempting to insert alert: symbol={exchange_code}, timestamp={alert_timestamp}, scanID={scanID}, timeframe={digit_name}, conditionID={conditionID}")
-                            alert_success = await self.db.insert_alert(exchange_code, alert_timestamp, scanID, digit_name, datetime.now(), conditionID)
-                            
-                            if alert_success:
-                                db_success = True
-                                logger.info(f"[process_alert] ✅ Alert successfully inserted to database: {exchange_code} at {alert_timestamp}")
-                                break  # Success! Break out of the retry loop
-                            else:
-                                logger.warning(f"[process_alert] ❌ Database insertion failed for {exchange_code} (attempt {attempt+1}/{max_retries}) - insert_alert returned False")
-                                
-                        except Exception as e:
-                            logger.error(f"[process_alert] ❌ Exception inserting to database (attempt {attempt+1}/{max_retries}): {type(e).__name__}: {e}")
-                            import traceback
-                            logger.error(f"[process_alert] Traceback: {traceback.format_exc()}")
-                            
-                        if attempt < max_retries - 1:
-                            # Exponential backoff: 0.1s, 0.2s, 0.4s (instead of 1s blocking)
-                            await asyncio.sleep(0.1 * (2 ** attempt))
-                    
-                    if not db_success:
-                        logger.error(f"CRITICAL: Failed to save alert to database after {max_retries} attempts: {exchange_code} | timestamp={alert_timestamp} | scanID={scanID} | conditionID={conditionID}")
-                        # File logging removed for performance - error logged to console only
-                        db_error_message = f"Database insertion failed after {max_retries} attempts"
-                    else:
-                        db_error_message = ""
+
+                    # ✅ FIX 2: Push alert delivery to async queue instead of blocking inline
+                    # This decouples DB insert + Telegram + Redis publish from the main processing loop
+                    queue = await _ensure_alert_queue()
+                    await queue.put({
+                        'db': self.db,
+                        'redis_client': redis_client,
+                        'exchange_code': exchange_code,
+                        'alert_timestamp': alert_timestamp,
+                        'alert_timestamp_dt': alert_timestamp_dt,
+                        'scanID': scanID,
+                        'digit_name': digit_name,
+                        'conditionID': conditionID,
+                        'close_ha': close_ha,
+                        'scan_name': scan_name,
+                        'info': info,
+                        'module_name': module_name,
+                        'today': self.today,
+                    })
+                    logger.info(f"[process_alert] ✅ Alert queued for async delivery: {exchange_code} {digit_name} (queue size: {queue.qsize()})")
+                    db_error_message = ""
                 else:
                     logger.warning(f"WARNING: No database connection available for {exchange_code}")
                     db_error_message = "No database connection available"
-                    db_success = False  # Set to False if no DB connection
-                
-                # ✅ FIX 4: Only send Telegram and Redis if DB save succeeded
-                if db_success:
-                    # Prepare alert data for Redis with proper type conversion
-                    alert_data = {
-                        "symbol": str(exchange_code),
-                        "datetime": alert_timestamp_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                        "scanid": str(int(scanID)) if pd.notna(scanID) else "0",
-                        "timeframe": str(digit_name),
-                        "bottime": datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
-                        "conditionID": str(int(conditionID)) if pd.notna(conditionID) else "0"
-                    }
-                    
-                    # ✅ FIX 1: Send Telegram notification with retry
-                    max_telegram_retries = 3
-                    telegram_sent = False
-                    for attempt in range(max_telegram_retries):
-                        try:
-                            success = await send_telegram_message(
-                                stock=exchange_code,
-                                price=round(close_ha, 2),
-                                date=alert_timestamp_dt.strftime("%d %b %Y"),
-                                time=alert_timestamp_dt.strftime("%H:%M"),
-                                tf=digit_name,
-                                sn=scan_name
-                            )
-                            if success:
-                                telegram_sent = True
-                                break
-                        except Exception as e:
-                            logger.warning(f"Telegram attempt {attempt+1}/{max_telegram_retries} failed for {exchange_code}: {e}")
-                            if attempt < max_telegram_retries - 1:
-                                await asyncio.sleep(0.5 * (attempt + 1))
-                    if not telegram_sent:
-                        logger.error(f"CRITICAL: Failed to send Telegram after {max_telegram_retries} attempts for {exchange_code}")
-                    
-                    # Add to Redis sorted set with error handling
-                    try:
-                        sorted_set_key = "Alerts"
-                        timestamp_score = datetime.now().timestamp()
-                        # Check if score already exists using zcount (efficient check)
-                        existing_count = await redis_client.zcount(sorted_set_key, timestamp_score, timestamp_score)
-                        # Only add if score doesn't exist
-                        if existing_count == 0:
-                            await redis_client.zadd(sorted_set_key, {json.dumps(alert_data): timestamp_score})
-                        # Set TTL on Alerts key (30 days - matches alerts_simple)
-                        await set_ttl_safe(redis_client, sorted_set_key)
-                        
-                        # Store simple alert in Redis sorted set: symbol, interval, candle timestamp
-                        try:
-                            simple_alert_key = "alerts_simple"
-                            # Use candle timestamp as score for chronological ordering
-                            candle_timestamp_score = int(alert_timestamp_dt.timestamp())
-                            # Value: symbol,interval,candle_timestamp
-                            simple_alert_value = f"{exchange_code},{digit_name},{alert_timestamp_dt.strftime('%Y-%m-%d %H:%M:%S')}"
-                            # Check if score already exists using zcount (efficient check)
-                            existing_count = await redis_client.zcount(simple_alert_key, candle_timestamp_score, candle_timestamp_score)
-                            # Only add if score doesn't exist
-                            if existing_count == 0:
-                                await redis_client.zadd(simple_alert_key, {simple_alert_value: candle_timestamp_score})
-                            # Set TTL to keep Redis clean (30 days)
-                            await set_ttl_safe(redis_client, simple_alert_key)
-                        except Exception as simple_err:
-                            logger.error(f"Error storing simple alert to Redis: {simple_err}")
-                        
-                        # ✅ FIX 3: Publish alert notification with retry
-                        max_redis_retries = 3
-                        redis_published = False
-                        for attempt in range(max_redis_retries):
-                            try:
-                                alert_notification = {
-                                    'type': 'info',
-                                    'message': 'new alert',
-                                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                                    'symbol': exchange_code,
-                                    'timeframe': digit_name
-                                }
-                                alert_json = json.dumps(alert_notification)
-                                await redis_client.publish('alerts', alert_json)
-                                redis_published = True
-                                break
-                            except Exception as e:
-                                logger.warning(f"Redis publish attempt {attempt+1}/{max_redis_retries} failed for {exchange_code}: {e}")
-                                if attempt < max_redis_retries - 1:
-                                    await asyncio.sleep(0.1 * (attempt + 1))
-                        if not redis_published:
-                            logger.error(f"CRITICAL: Failed to publish to Redis after {max_redis_retries} attempts for {exchange_code}")
-                        
-                    except Exception as e:
-                        logger.error(f"Error publishing alert to Redis: {e}")
-                else:
-                    logger.error(f"Skipping Telegram/Redis - DB save failed for {exchange_code}")
                 
                 return db_error_message if 'db_error_message' in locals() else ""
                 
@@ -1747,12 +1783,15 @@ class RedisAlertEngine:
                                             UCL = np.array(UCL_list)
                                             LCL = np.array(LCL_list)
                                         elif lrc_filter_enabled and lrc_filter_type:
-                                            # LRC filter is enabled but no LRC data available - log warning
-                                            logger.warning(f"LRC filter enabled but no LRC data available (lrc_key={lrc_key}, stored_lrc exists={stored_lrc is not None})")
-                                            # Set to None so the check below will skip LRC filter
-                                            LRL = None
-                                            UCL = None
-                                            LCL = None
+                                            # LRC filter is enabled but no stored LRC data — check if already calculated in primary path
+                                            if LRL is not None and UCL is not None and LCL is not None:
+                                                logger.info(f"[PROCESS] LRC already calculated in primary path, skipping stored data rebuild (LRL len={len(LRL)})")
+                                            else:
+                                                logger.warning(f"LRC filter enabled but no LRC data available (lrc_key={lrc_key}, stored_lrc exists={stored_lrc is not None})")
+                                                # Set to None so the fallback below will recalculate
+                                                LRL = None
+                                                UCL = None
+                                                LCL = None
                                 
                                 else:
                                     # One or both keys don't exist - handle independently
@@ -2290,7 +2329,7 @@ class RedisAlertEngine:
                                                 else:
                                                     # Time range: exclude alerts within range
                                                     if start_time <= end_time:
-                                                        # Normal range (e.g., 10:00 to 11:00)
+                                                        # Normal range (e.g., 10:00 to 11:30)
                                                         if start_time <= alert_time <= end_time:
                                                             failure_reasons.append(f"Alert time {alert_time} falls within excluded range {start_time}-{end_time}")
                                                             result_status = "REJECTED"
