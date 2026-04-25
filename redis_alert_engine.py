@@ -1024,18 +1024,21 @@ class RedisAlertEngine:
             fetch_all = not initial_check_done  # Full history once on startup
 
             # Fetch OHLC data directly from Redis (self-contained approach)
-            logger.info(f"[PROCESS] symbol={symbol} interval={interval} | Step 2: Fetching OHLC data (fetch_all={fetch_all})")
+            # CRITICAL: Always fetch full history for PSAR calculation accuracy.
+            # PSAR is path-dependent — truncating history shifts where signals land,
+            # causing chart vs alert PSAR mismatch.
+            logger.info(f"[PROCESS] symbol={symbol} interval={interval} | Step 2: Fetching OHLC data (fetch_all=True)")
             if interval == '1minute':
                 ohlc_df = await self._fetch_1min_ohlc_data(
                     redis_client, token,
                     last_n_candles=500,
-                    fetch_all=fetch_all
+                    fetch_all=True
                 )
             else:
                 ohlc_df = await self._fetch_resampled_ohlc_data(
                     redis_client, symbol, interval,
                     last_n_candles=500,
-                    fetch_all=fetch_all
+                    fetch_all=True
                 )
                 
             if ohlc_df is None or ohlc_df.empty:
@@ -2393,7 +2396,10 @@ class RedisAlertEngine:
                                                     # Valid LRC values - perform filter check
                                                     middle_lrc = (ucl_value + lcl_value) / 2  # Middle LRC line
                                                     
-                                                    if lrc_filter_type == 'middle' or lrc_filter_type == 1:
+                                                    # Normalize lrc_filter_type to string for comparison (DB stores as varchar)
+                                                    lrc_type_str = str(lrc_filter_type).strip().lower()
+
+                                                    if lrc_type_str == 'middle' or lrc_type_str == '1':
                                                         # Check: high < middle_LRC
                                                         if not (high_ha < middle_lrc):
                                                             failure_reasons.append(f"High {high_ha:.2f} not below middle LRC {middle_lrc:.2f}")
@@ -2405,7 +2411,7 @@ class RedisAlertEngine:
                                                                 f"RESULT: {result_status} | REASON: {result_reason}"
                                                             )
                                                             continue
-                                                    elif lrc_filter_type == 'lower' or lrc_filter_type == 2:
+                                                    elif lrc_type_str == 'lower' or lrc_type_str == '2':
                                                         # Check: high < lower_LRC
                                                         if not (high_ha < lcl_value):
                                                             failure_reasons.append(f"High {high_ha:.2f} not below lower LRC {lcl_value:.2f}")
