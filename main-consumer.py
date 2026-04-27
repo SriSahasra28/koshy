@@ -42,8 +42,10 @@ def _setup_logging():
             colorize=True
         )
         
-        # Add file handler for scheduled runs (rotates daily, keeps 30 days)
-        log_file = "main_consumer.log"
+        # Add file handler — absolute path so logs land in the same place
+        # regardless of how the process is started (Task Scheduler, CLI, etc.)
+        log_dir = os.path.dirname(os.path.abspath(__file__))
+        log_file = os.path.join(log_dir, "main_consumer.log")
         logger.add(
             log_file,
             level="INFO",
@@ -425,9 +427,9 @@ def resample_ohlc_data(df, interval_minutes):
         df_resample.set_index('timestamp', inplace=True)
         
         # Resample aligned to 09:15 using origin/offset; completed candles only
-        # closed='left': candle labeled 09:15 contains {09:15, 09:16, 09:17} (matches chart JS grouping)
+        # closed='right': candle labeled 09:15 contains {09:16, 09:17, ..., 09:20} (proven matching on 1/2/5min)
         resampled = df_resample.resample(
-            f'{interval_minutes}min', origin='start_day', offset='15min', label='left', closed='left'
+            f'{interval_minutes}min', origin='start_day', offset='15min', label='left', closed='right'
         ).agg({
             'open': 'first',
             'high': 'max',
@@ -1155,6 +1157,7 @@ async def main():
                     except Exception:
                         continue
                 
+                cycle_start = time.time()
                 logger.info(f"[MAIN_LOOP] Received {len(tokens_to_consider)} token(s) from ohlc_ready queue: {tokens_to_consider}")
 
                 current_time = datetime.now()
@@ -1349,6 +1352,8 @@ async def main():
                     last_processed = {k: v for k, v in last_processed.items() 
                                    if hasattr(v, 'to_pydatetime') and v.to_pydatetime() > cutoff}
                 
+                cycle_duration = time.time() - cycle_start
+                logger.info(f"[MAIN_LOOP] Cycle complete | Duration: {cycle_duration:.2f}s | Combinations: {len(matching_combinations)}")
                 await asyncio.sleep(0.05)  # avoid hammering
                 
             except Exception as e:

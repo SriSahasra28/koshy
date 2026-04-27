@@ -27,10 +27,10 @@ class dbconnection:
                 pool_recycle=3600,  # Recycle connections every hour
                 echo=False
             )
-            print("✅ Database connection pool created successfully")
+            print("[OK] Database connection pool created successfully")
             return True
         except Exception as e:
-            print(f"❌ Failed to create database connection pool: {e}")
+            print(f"[ERROR] Failed to create database connection pool: {e}")
             return False
     
     async def test_connection(self):
@@ -41,13 +41,13 @@ class dbconnection:
                     await cur.execute("SELECT 1")
                     result = await cur.fetchone()
                     if result and result[0] == 1:
-                        print("✅ Database connection test successful")
+                        print("[OK] Database connection test successful")
                         return True
                     else:
-                        print("❌ Database connection test failed")
+                        print("[ERROR] Database connection test failed")
                         return False
         except Exception as e:
-            print(f"❌ Database connection test error: {e}")
+            print(f"[ERROR] Database connection test error: {e}")
             return False
 
     async def get_data(self, query):
@@ -1351,7 +1351,7 @@ class dbconnection:
             try:
                 # Validate input parameters
                 if not symbol or not datetime or not scanid or not timeframe or not bot_time:
-                    print(f"❌ Invalid parameters for alert insertion: symbol={symbol}, datetime={datetime}, scanid={scanid}, timeframe={timeframe}, bot_time={bot_time}")
+                    print(f"[ERROR] Invalid parameters for alert insertion: symbol={symbol}, datetime={datetime}, scanid={scanid}, timeframe={timeframe}, bot_time={bot_time}")
                     return False
                 
                 # Format datetime to string if it's a datetime object
@@ -1380,29 +1380,29 @@ class dbconnection:
                             (symbol_str, datetime_str, scanid_str, timeframe_str, bot_time_str, conditionID_str)
                         )
                         await conn.commit()
-                        print(f"✅ Alert inserted successfully: {symbol} at {datetime_str}")
+                        print(f"[OK] Alert inserted successfully: {symbol} at {datetime_str}")
                         return True
                         
             except aiomysql.Error as db_error:
                 error_msg = str(db_error).lower()
-                print(f"❌ Database error (attempt {attempt+1}/{max_retries}): {db_error}")
+                print(f"[ERROR] Database error (attempt {attempt+1}/{max_retries}): {db_error}")
                 
                 if "deadlock" in error_msg or "lock wait timeout" in error_msg:
-                    print(f"🔄 Deadlock detected, retrying in {retry_delay} seconds...")
+                    print(f"[RETRY] Deadlock detected, retrying in {retry_delay} seconds...")
                     await asyncio.sleep(retry_delay)
                     retry_delay *= 2  # Exponential backoff
                     continue
                 elif "connection" in error_msg or "timeout" in error_msg:
-                    print(f"🔄 Connection issue detected, retrying in {retry_delay} seconds...")
+                    print(f"[RETRY] Connection issue detected, retrying in {retry_delay} seconds...")
                     await asyncio.sleep(retry_delay)
                     retry_delay *= 2
                     continue
                 else:
-                    print(f"❌ Fatal database error: {db_error}")
+                    print(f"[ERROR] Fatal database error: {db_error}")
                     return False
                     
             except Exception as e:
-                print(f"❌ Unexpected error (attempt {attempt+1}/{max_retries}): {e}")
+                print(f"[ERROR] Unexpected error (attempt {attempt+1}/{max_retries}): {e}")
                 print(f"   Symbol: {symbol}, DateTime: {datetime}, ScanID: {scanid}")
                 print(f"   Timeframe: {timeframe}, BotTime: {bot_time}")
                 
@@ -1413,7 +1413,7 @@ class dbconnection:
                 else:
                     return False
         
-        print(f"❌ Failed to insert alert after {max_retries} attempts: {symbol}")
+        print(f"[ERROR] Failed to insert alert after {max_retries} attempts: {symbol}")
         return False
     async def insert_into_dashboard(self, total_symbol, skipped, processed, alerts_skip, alerts_process, alerts_gen, alerts_fail, cache_available, cache_unavailable, data_unavailable_db, data_unavailable_zerodha, invalid_token, bot_time, interval, total_time):
         async with self.pool.acquire() as conn:

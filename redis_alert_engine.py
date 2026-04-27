@@ -811,89 +811,59 @@ class RedisAlertEngine:
                 # Get the score from the last entry
                 last_score = int(last_entry[0][1]) if last_entry else None
             
-            # Pre-filter entries: only keep those with scores > last_score (batch filtering)
+            # Convert all timestamps to scores in one fast vectorized pass (avoids per-element pd.to_datetime)
+            if len(timestamps) > 0 and isinstance(timestamps[0], pd.Timestamp):
+                ts_scores = np.array([int(ts.timestamp()) for ts in timestamps], dtype=np.int64)
+                ts_strs = [ts.strftime('%Y-%m-%d %H:%M:%S') for ts in timestamps]
+            else:
+                ts_as_dt = pd.to_datetime(timestamps)
+                ts_scores = np.array([int(t.timestamp()) for t in ts_as_dt], dtype=np.int64)
+                ts_strs = [t.strftime('%Y-%m-%d %H:%M:%S') for t in ts_as_dt]
+
+            # Fast filter: only keep entries with scores > last_score
+            if last_score is not None:
+                mask = ts_scores > last_score
+                indices = np.where(mask)[0]
+            else:
+                indices = np.arange(len(timestamps))
+
+            # Build new entries only for indices that passed the filter
             new_entries = []
-            for i, ts in enumerate(timestamps):
+            current_storage_time = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')
+            for i in indices:
                 try:
-                    # Convert timestamp to score
-                    if isinstance(ts, pd.Timestamp):
-                        ts_str = ts.strftime('%Y-%m-%d %H:%M:%S')
-                        ts_score = int(ts.timestamp())
-                    else:
-                        ts_str = str(ts)
-                        ts_dt = pd.to_datetime(ts_str)
-                        ts_score = int(ts_dt.timestamp())
-                    
-                    # Only keep entries with scores greater than the last score (or all if no last score exists)
-                    if last_score is not None and ts_score <= last_score:
-                        continue
-                    
-                    # Prepare indicator data
-                    # OPTIMIZED: Add stored_at timestamp when creating data structure (no extra latency)
-                    current_storage_time = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')
                     indicator_data = {
-                        'timestamp': ts_str,
-                        'stored_at': current_storage_time  # Track when this entry was stored in Redis
+                        'timestamp': ts_strs[i],
+                        'stored_at': current_storage_time
                     }
-                    
-                    # Determine indicator type based on parameters
+
                     if signals is not None and i < len(signals):
-                        # PSAR indicator: use psar_value and signal
                         indicator_data['psar_value'] = float(values[i]) if not np.isnan(values[i]) else None
                         indicator_data['signal'] = int(signals[i])
-                    elif values2 is not None and i < len(values2):
-                        # Stochastic indicator: use k_value and d_value
-                        indicator_data['k_value'] = float(values[i]) if not np.isnan(values[i]) else None
-                        indicator_data['d_value'] = float(values2[i]) if not np.isnan(values2[i]) else None
                     elif values3 is not None and i < len(values3):
-                        # LRC indicator: use lrl_value, ucl_value, lcl_value
                         indicator_data['lrl_value'] = float(values[i]) if not np.isnan(values[i]) else None
                         indicator_data['ucl_value'] = float(values2[i]) if values2 is not None and i < len(values2) and not np.isnan(values2[i]) else None
-                        indicator_data['lcl_value'] = float(values3[i]) if i < len(values3) and not np.isnan(values3[i]) else None
+                        indicator_data['lcl_value'] = float(values3[i]) if not np.isnan(values3[i]) else None
+                    elif values2 is not None and i < len(values2):
+                        indicator_data['k_value'] = float(values[i]) if not np.isnan(values[i]) else None
+                        indicator_data['d_value'] = float(values2[i]) if not np.isnan(values2[i]) else None
                     else:
-                        # Fallback: use generic value (shouldn't happen in normal flow)
                         indicator_data['value'] = float(values[i]) if not np.isnan(values[i]) else None
-                    
-                    # Store entry data for batch processing
-                    new_entries.append((ts_score, indicator_data))
+
+                    new_entries.append((int(ts_scores[i]), indicator_data))
                 except Exception as e:
-                    logger.error(f"[STORE_IND][ERROR] Failed to prepare indicator data for {indicator_key} at {ts}: {e}")
+                    logger.error(f"[STORE_IND][ERROR] Failed to prepare indicator data for {indicator_key} at {ts_strs[i]}: {e}")
                     continue
-            
-            # Batch add all new entries at once (only if there are entries to add)
+
+            # Batch store — entries are already filtered by last_score so they're guaranteed new
             stored_count = 0
             if new_entries:
-                # First, batch check which scores already exist using zcount
-                check_pipe = redis_client.pipeline()
+                pipe = redis_client.pipeline()
                 for ts_score, indicator_data in new_entries:
-                    check_pipe.zcount(indicator_key, ts_score, ts_score)
-                
-                # Execute checks
-                try:
-                    existing_counts = await check_pipe.execute()
-                except Exception as e:
-                    logger.error(f"[STORE_IND][ERROR] Failed to check existing scores for {indicator_key}: {e}")
-                    existing_counts = [0] * len(new_entries)  # Default to all new if check fails
-                
-                # Filter entries that don't exist (count == 0)
-                entries_to_add = []
-                for (ts_score, indicator_data), count in zip(new_entries, existing_counts):
-                    if count == 0:
-                        entries_to_add.append((ts_score, indicator_data))
-                
-                # Only add entries that don't exist
-                if entries_to_add:
-                    pipe = redis_client.pipeline()
-                    for ts_score, indicator_data in entries_to_add:
-                        pipe.zadd(indicator_key, {json.dumps(indicator_data): ts_score})
-                        stored_count += 1
-                    
-                    # OPTIMIZED: Set TTL in same pipeline (combine operations)
-                    pipe.expire(indicator_key, 30 * 24 * 60 * 60)  # 30 days in seconds
-                    
-                    # Execute all operations in single batch
-                    await pipe.execute()
-                # Removed indicator store log (high frequency)
+                    pipe.zadd(indicator_key, {json.dumps(indicator_data): ts_score})
+                    stored_count += 1
+                pipe.expire(indicator_key, 30 * 24 * 60 * 60)  # 30 days TTL
+                await pipe.execute()
             
             return stored_count
             
